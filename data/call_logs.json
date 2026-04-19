@@ -1,0 +1,285 @@
+[
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d87c4-c2b3-7000-bf24-066c2fbf2f50",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "706eab38-425f-497b-867c-28a0a5a4d790",
+    "created_at": "2026-04-13T16:55:12.344850",
+    "transcript": "Assistant: Hi,\nAssistant: Hi, Sarvesh Batachari.\nAssistant: Hi, Sarvesh Bhattacharya.\nAssistant: This is Roo calling\nAssistant: This is Roo calling from Sweet Route,\nAssistant: This is Roo calling from Sweet Route, Toys and Men\nAssistant: This is Roo calling from Sweet Root, Toys and Memories.\nAssistant: I was just speaking\nAssistant: I was just speaking with you on our chat.\nAssistant: I was just speaking with you on our chat.\nAssistant: How can I\nAssistant: How can I assist you today?\nAssistant: How can I assist you today?\nUser: Hello?\nUser: Hello?\nAssistant: Hi, Sarve.\nAssistant: Hi, Sarvesh. How can I assist\nAssistant: Hi, Sarvesh. How can I assist you today?\nUser: Who is this?\nAssistant: I'm Roo.\nAssistant: I'm Roo.\nAssistant: Your assistant from\nAssistant: Your assistant from Sweet Root Toys\nAssistant: Your assistant from Sweet Root Toys and Memories in Bengal\nAssistant: Your assistant from Sweet Root Toys and Memories in Bengaluru.\nAssistant: How can I help you\nAssistant: How can I help you today?"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d87f6-eeb6-7000-b250-276df74c6f28",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "f08ee5fa-01ad-4e85-ab6f-a10c495fea4f",
+    "created_at": "2026-04-13T17:50:00.286732"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8a56-3770-755d-9869-cd4051f9f160",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "48f740a8-bc31-4dfa-ac56-c0f4319f6543",
+    "created_at": "2026-04-14T04:53:19.564699"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8a67-5b23-755f-b1a1-9c9a6238ae2d",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "c5a2773a-9791-418a-bcfb-7809342158ca",
+    "created_at": "2026-04-14T05:12:00.927110"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8a69-50db-7bb8-b6cf-43f4c845c12d",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "a1087d5f-35e5-4849-9b39-aef2840ffd9e",
+    "created_at": "2026-04-14T05:14:10.127063"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8aa9-d79f-7ee0-b182-78c9c26247ff",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "2c581bc6-7bb7-4469-ae75-4de127502d9b",
+    "created_at": "2026-04-14T06:24:39.124575"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8aaf-a89c-755d-9a03-06ac8777a309",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "c9cd7a11-ff4d-4427-b592-63ef06600074",
+    "created_at": "2026-04-14T06:31:00.645856"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8ac0-9584-7ff6-a84a-1efbd0785b0a",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "45173a55-09d9-4807-a704-dc111990ff78",
+    "created_at": "2026-04-14T06:49:28.005907"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8acb-ed03-700f-8c76-c471c651b340",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "499f870e-887e-40b7-bf27-32433d66c86b",
+    "created_at": "2026-04-14T07:01:53.756188"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8acd-7172-755d-a7e8-dd8d64b45356",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "f71da317-6c9f-4fa9-b6a4-3d5242675421",
+    "created_at": "2026-04-14T07:03:30.836703"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8ae3-bc4c-755d-9b25-ad689db4c94e",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh",
+    "id": "b18ee9ba-5dd4-4627-a49c-d39a060a9ce4",
+    "created_at": "2026-04-14T07:27:52.881705"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8b23-91d8-7000-863e-31ddc2408996",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh",
+    "id": "b7a3ca59-6a15-451b-bed3-26801ae0cec8",
+    "created_at": "2026-04-14T08:37:37.324661"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8b30-ab0e-7ee0-b85f-5da7adedb04a",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh",
+    "id": "5bc44bd6-ac26-4182-83a7-95537b3fcafe",
+    "created_at": "2026-04-14T08:51:54.739889"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8b35-7c2b-777d-bd36-9356ab58ae46",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh",
+    "id": "3f8e9bf1-f87a-4bd5-9a43-10476bc90c6e",
+    "created_at": "2026-04-14T08:57:09.421351"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8be5-98ae-7000-a298-17e9ddf4e686",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh",
+    "id": "017153dd-90e7-44bf-a792-6ff3b90de145",
+    "created_at": "2026-04-14T12:09:33.014622"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8fce-64f1-755c-b336-fb42517c3085",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "68118b49-f61f-464c-8422-6bc54375c021",
+    "created_at": "2026-04-15T06:22:39.819986"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d8fdd-1f23-733a-b1b0-ad5f5d199b30",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "6befed9c-0d2b-45d3-9d84-ec8957827e58",
+    "created_at": "2026-04-15T06:38:46.643805"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d94b6-4360-755f-a9fd-fe5c9d0989a9",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh",
+    "id": "a00a6342-6eb2-4d62-abc2-d5ee03acfa2f",
+    "created_at": "2026-04-16T05:14:25.539231"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d94b7-9452-7005-a447-7ee5d6a65dad",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "0e49508c-9245-477b-b752-a2e5f042dfd5",
+    "created_at": "2026-04-16T05:15:50.500003"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d94b8-dfd0-7cc1-8fc8-7e0870a70262",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "6beef182-581b-4e34-81c1-8e45e5791d42",
+    "created_at": "2026-04-16T05:17:17.083992"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d94d7-d3f3-7dd7-b3fc-154255cdb4e3",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarv",
+    "id": "8e9ea0e4-45b7-4b5e-b0b5-ac82de07617c",
+    "created_at": "2026-04-16T05:51:05.019121"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d94fc-6472-7ff0-be90-99a5167ff620",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarv",
+    "id": "2d04d9d2-2a10-4222-a911-5f54a44d532c",
+    "created_at": "2026-04-16T06:31:02.066898"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d94fe-0206-7ddc-b980-4c431894d377",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarv",
+    "id": "bbe7631c-7b77-4a82-a97c-15602744f04d",
+    "created_at": "2026-04-16T06:32:47.894239"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d951a-2738-777f-a43b-bff29a214e6f",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarv",
+    "id": "e185db9d-d209-49e0-a5df-e4f754a42c04",
+    "created_at": "2026-04-16T07:03:31.160222"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d953b-75f6-777f-a82b-015fafe44ab0",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarvesh Bhattacharyya",
+    "id": "3ce71213-845c-4fd9-83ff-4d98b5513913",
+    "created_at": "2026-04-16T07:39:55.086061"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d9546-83fc-7004-a364-9998e3bfbb59",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarv",
+    "id": "fe66095c-57dd-4087-aafa-b01b276a8800",
+    "created_at": "2026-04-16T07:51:57.857459"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019d9565-faf0-7000-8972-4b682533d183",
+    "customer_phone": "+919731737460",
+    "customer_name": "Sarv",
+    "id": "0922a61d-4c96-4b45-aa4a-7e8189d35216",
+    "created_at": "2026-04-16T08:26:20.019737"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019da543-8e43-7001-a5cf-8eff63f5d080",
+    "customer_phone": "+919731737460",
+    "customer_name": "sarv",
+    "id": "d95458d9-9e99-411e-af21-287532b9acba",
+    "created_at": "2026-04-19T10:22:41.155855",
+    "transcript": "Assistant: Hi, sir. This is Drew calling from Troy World. I was just speaking with you on our chat regarding your inquiry about assistance. Hi. I'm Drew, uh, your assistant for Troy World.\nAssistant: How can I help you today?\nAssistant: Customer,\nAssistant: Hi.\nAssistant: assistant.\nAssistant: Hello.\nAssistant: can I assist you today?\nAssistant: Customer,\nAssistant: Pause. Call me.\nAssistant: assistant. You'd like me to call you back at a later time.\nAssistant: what's a good time to reach you?\nAssistant: I'm here to help you further.\nAssistant: How can I assist you today?"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019da55e-f616-7001-8796-5e06f5b97eb9",
+    "customer_phone": "+919731737460",
+    "customer_name": "sarv",
+    "id": "261575f8-2aea-4c3d-a9f8-70f92e48c587",
+    "created_at": "2026-04-19T10:52:37.044923",
+    "transcript": "Assistant: Hi, Saav. This is Roo calling from Trival. I was just speaking with you on our chat regarding your inquiry about assistant. Hi. I'm Roo, your assistant for Trival. How can I help you today?\nAssistant: Customer, hi, assistant.\nAssistant: Hello.\nAssistant: can I assist you today?\nAssistant: customer call assistant. You'd like to make a call. What's the number you you would like to dial? I'm here to help you further. How can I assist you today?"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019da583-69de-7001-9ab0-ae53670188a7",
+    "customer_phone": "+911234567890",
+    "customer_name": "Test User",
+    "id": "200cebcb-b980-4344-8d1d-1614cc332330",
+    "created_at": "2026-04-19T11:32:26.411996"
+  },
+  {
+    "business_id": "8ea5a5e8-cce5-41dd-ad75-55f474d499f3",
+    "call_type": "outbound",
+    "vapi_call_id": "019da6b6-893c-7001-b095-d8414094ef23",
+    "customer_phone": "+919731737460",
+    "customer_name": "sarv",
+    "id": "97c16ae0-46ab-4ade-9e2c-ee32884b5b20",
+    "created_at": "2026-04-19T17:07:53.876964",
+    "transcript": "Assistant: Hi, . This is Ru calling from Tri World. I was just speaking with you on our chat regarding your inquiry about hike. I'm Ru, your assistant for Tri World. How can I help you today?\nAssistant: hi hello\nAssistant: I'm a virtual assistant helping with booking coordination for tri world. How can I assist you today?\nAssistant: Cool.\nAssistant: you'd like to place a call to Troy World. Can you please tell me what's the purpose of your call?\nAssistant: Are you looking to book a service, or would you like more information about what we offer?\nAssistant: I'm here to help you further. How can I assist you today?\nUser: Hi.\nAssistant: Hello?\nUser: Escalated room.\nAssistant: Thank you for letting me know. I understand you'd like to escalate your request regarding a room. Could you please provide a few more details so I can assist you better?\nAssistant: are you requesting an upgrade reporting an issue or something? Tell him, what is your room number or reservation name?\nAssistant: What specific assistance do you need\nAssistant: Once I have this information I'll escalate your request to the appropriate team right away\nUser: It's\nAssistant: Could you please complete your sentence or provide a bit more information\nAssistant: are you\nUser: No. It's a emergency. It's an emergency. It's correct to the owner.\nAssistant: Thank you for letting me know. Your message indicates it's an emergency, and you need to escalate it directly to the owner. I'll make sure to escalate your request immediately. Could you please provide details about the emergency and your room number\nAssistant: or location\nAssistant: so i can pass the information\nUser: Please tell... yeah. Please... hello?\nUser: Please tell Serge wants to check if it's working or not.\nAssistant: Thank you for your message. Here's what I'll relay. Search wants to check if it's working or not. Could you please clarify what search wants to check? Is it a device equipment or something related to the room?\nAssistant: providing more context\nUser: The the owner will... yeah. The owner will understand that. Please convey to him. Ask any minute.\nAssistant: Understood. Here's how I'd convey your message. The guest would like to know if it's working or not. Search requests that you check, and the owner will understand. I'll pass this message to the owner as requested. If you'd like to add anything more or clarify for\nUser: No. No. Just just escalate. Just escalate to him.\nAssistant: Understood. I will escalate your request immediately to the owner with your message. The guest search wants to check if it's working or not. The owner will understand. If you have any further instructions or updates, please\nUser: No. I don't have it for the instruction. Please correct the order immediately.\nAssistant: Thank you for your message. I will escalate your request to the owner immediately and convey. Search wants to check if it's working or not. Please correct the\nUser: Yes. Yes. That's all. That... that's all. That's all. Just convert it to\nAssistant: Certainly."
+  }
+]

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python *)",
+      "Bash(uv *)",
+      "WebFetch(www.mintlify.com)",
+      "WebFetch(mintlify.wiki)",
+      "WebFetch(nango.dev)"
+    ]
+  },
+  "$version": 3
+}

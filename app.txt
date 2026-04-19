@@ -1,0 +1,3466 @@
+=== SUPEROWL - FULL CONTENTS OF app/ DIRECTORY ===
+Generated on: Sun Apr 19 12:40:26 UTC 2026
+All files under app/ (pycache and .pyc files excluded)
+Order: core → models → routers → schemas → services → utils
+
+============================================
+FOLDER: app/
+============================================
+
+----------------------------------------
+FILE: app/__init__.py
+----------------------------------------
+
+----------------------------------------
+
+============================================
+FOLDER: app/core/
+============================================
+
+----------------------------------------
+FILE: app/core/__init__.py
+----------------------------------------
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/core/config.py
+----------------------------------------
+"""Application configuration loaded from environment variables."""
+
+from typing import Optional
+
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from the environment or `.env` file."""
+
+    model_config = {
+        "env_file": ".env",
+        "extra": "ignore",
+    }
+    # VAPI
+    VAPI_API_KEY: str
+    VAPI_OUTBOUND_PHONE: str  # The phone number VAPI uses for outbound calls
+    VAPI_PHONE_NUMBER_ID: str
+    VAPI_INBOUND_ASSISTANT_ID: Optional[str] = None
+    VAPI_OUTBOUND_ASSISTANT_ID: Optional[str] = None
+    VAPI_OWNER_ASSISTANT_ID: Optional[str] = None
+    VAPI_WEBHOOK_URL: str = "https://your-ngrok.ngrok-free.app/vapi-webhook"
+
+    # Nango
+    NANGO_SECRET_KEY: str
+    NANGO_BASE_URL: str = "https://api.nango.dev"
+    NANGO_INTEGRATION_ID: str = "slack"
+    NANGO_WEBHOOK_SECRET: Optional[str] = None
+
+    # Groq
+    GROQ_API_KEY: str
+
+    # Optional ElevenLabs key for in-UI voice previews
+    ELEVENLABS_API_KEY: Optional[str] = None
+
+    # Vobiz SIP
+    VOBIZ_SIP_DOMAIN: str = "40942180.sip.vobiz.ai"
+
+    # Demo business seed
+    BUSINESS_PHONE_NUMBER: str = "+919901540581"
+    BUSINESS_FALLBACK_NUMBER: Optional[str] = None
+
+    # Slack (optional direct webhook)
+    SLACK_WEBHOOK_URL: Optional[str] = None
+
+    # Feature flags
+    FALLBACK_ON_NO_ANI_MATCH: bool = False
+
+
+settings = Settings()
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/core/dependencies.py
+----------------------------------------
+"""Shared dependencies for FastAPI."""
+
+from app.services.groq_service import groq_service
+from app.services.nango_service import nango_client
+from app.services.prompt_builder import prompt_builder
+from app.services.slack_service import slack_service
+from app.services.vapi_service import vapi_client
+
+__all__ = [
+    "vapi_client",
+    "nango_client",
+    "slack_service",
+    "groq_service",
+    "prompt_builder",
+]
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/core/json_storage.py
+----------------------------------------
+"""JSON-based persistent storage layer."""
+
+import json
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+import asyncio
+
+# Data directory
+DATA_DIR = Path(__file__).parent.parent.parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+BUSINESSES_FILE = DATA_DIR / "businesses.json"
+CALL_LOGS_FILE = DATA_DIR / "call_logs.json"
+PROMPTS_FILE = DATA_DIR / "prompts.json"
+
+# In-memory lock for concurrent writes
+_write_lock = asyncio.Lock()
+
+
+def _ensure_files():
+    """Ensure all JSON files exist."""
+    if not BUSINESSES_FILE.exists():
+        BUSINESSES_FILE.write_text("{}")
+    if not CALL_LOGS_FILE.exists():
+        CALL_LOGS_FILE.write_text("[]")
+    if not PROMPTS_FILE.exists():
+        PROMPTS_FILE.write_text("{}")
+
+
+_ensure_files()
+
+
+# ============================================================================
+# BUSINESS STORAGE
+# ============================================================================
+
+async def get_business(business_id: str) -> Optional[Dict[str, Any]]:
+    """Get a business by ID."""
+    businesses = json.loads(BUSINESSES_FILE.read_text() or "{}")
+    return businesses.get(business_id)
+
+
+async def get_business_by_phone(phone_number: str) -> Optional[Dict[str, Any]]:
+    """Get a business by phone number."""
+    if not phone_number:
+        return None
+
+    query_digits = "".join(filter(str.isdigit, str(phone_number)))
+    businesses = json.loads(BUSINESSES_FILE.read_text() or "{}")
+    for business in businesses.values():
+        stored_phone = business.get("phone_number")
+        if stored_phone == phone_number:
+            return business
+
+        stored_digits = "".join(filter(str.isdigit, str(stored_phone or "")))
+        if query_digits and stored_digits and query_digits == stored_digits:
+            return business
+
+        # Match local 10-digit suffix to handle +country-code variations.
+        if (
+            len(query_digits) >= 10
+            and len(stored_digits) >= 10
+            and query_digits[-10:] == stored_digits[-10:]
+        ):
+            return business
+    return None
+
+
+async def list_businesses() -> List[Dict[str, Any]]:
+    """List all businesses."""
+    businesses = json.loads(BUSINESSES_FILE.read_text() or "{}")
+    return list(businesses.values())
+
+
+async def create_business(business_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a new business."""
+    async with _write_lock:
+        businesses = json.loads(BUSINESSES_FILE.read_text() or "{}")
+        
+        business_id = str(uuid.uuid4())
+        business_data["id"] = business_id
+        now = datetime.utcnow().isoformat()
+        business_data["created_at"] = now
+        business_data["updated_at"] = now
+        
+        businesses[business_id] = business_data
+        BUSINESSES_FILE.write_text(json.dumps(businesses, indent=2))
+    
+    return business_data
+
+
+async def update_business(business_id: str, business_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Update an existing business."""
+    async with _write_lock:
+        businesses = json.loads(BUSINESSES_FILE.read_text() or "{}")
+        
+        if business_id not in businesses:
+            return None
+        
+        # Preserve ID and created_at
+        business_data["id"] = business_id
+        business_data["created_at"] = businesses[business_id].get("created_at", datetime.utcnow().isoformat())
+        business_data["updated_at"] = datetime.utcnow().isoformat()
+        
+        businesses[business_id] = business_data
+        BUSINESSES_FILE.write_text(json.dumps(businesses, indent=2))
+    
+    return business_data
+
+
+async def delete_business(business_id: str) -> bool:
+    """Delete a business."""
+    async with _write_lock:
+        businesses = json.loads(BUSINESSES_FILE.read_text() or "{}")
+        
+        if business_id in businesses:
+            del businesses[business_id]
+            BUSINESSES_FILE.write_text(json.dumps(businesses, indent=2))
+            return True
+        return False
+
+
+# ============================================================================
+# CALL LOG STORAGE
+# ============================================================================
+
+async def create_call_log(call_log_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a new call log."""
+    async with _write_lock:
+        call_logs = json.loads(CALL_LOGS_FILE.read_text() or "[]")
+        
+        call_log_data["id"] = str(uuid.uuid4())
+        call_log_data["created_at"] = datetime.utcnow().isoformat()
+        
+        call_logs.append(call_log_data)
+        CALL_LOGS_FILE.write_text(json.dumps(call_logs, indent=2))
+    
+    return call_log_data
+
+
+async def get_call_log(call_log_id: str) -> Optional[Dict[str, Any]]:
+    """Get a call log by ID."""
+    call_logs = json.loads(CALL_LOGS_FILE.read_text() or "[]")
+    for log in call_logs:
+        if log.get("id") == call_log_id:
+            return log
+    return None
+
+
+async def get_call_log_by_vapi_id(vapi_call_id: str) -> Optional[Dict[str, Any]]:
+    """Get a call log by VAPI call ID."""
+    call_logs = json.loads(CALL_LOGS_FILE.read_text() or "[]")
+    for log in call_logs:
+        if log.get("vapi_call_id") == vapi_call_id:
+            return log
+    return None
+
+
+async def update_call_log(call_log_id: str, call_log_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Update an existing call log."""
+    async with _write_lock:
+        call_logs = json.loads(CALL_LOGS_FILE.read_text() or "[]")
+        
+        for i, log in enumerate(call_logs):
+            if log.get("id") == call_log_id:
+                call_log_data["id"] = call_log_id
+                call_log_data["created_at"] = log.get("created_at", datetime.utcnow().isoformat())
+                call_logs[i] = call_log_data
+                CALL_LOGS_FILE.write_text(json.dumps(call_logs, indent=2))
+                return call_log_data
+    
+    return None
+
+
+async def list_call_logs_for_business(business_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    """List recent call logs for a business."""
+    call_logs = json.loads(CALL_LOGS_FILE.read_text() or "[]")
+    filtered = [log for log in call_logs if log.get("business_id") == business_id]
+    # Sort by created_at descending
+    filtered.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return filtered[:limit]
+
+
+async def list_all_call_logs(limit: int = 1000) -> List[Dict[str, Any]]:
+    """List recent call logs across all businesses."""
+    call_logs = json.loads(CALL_LOGS_FILE.read_text() or "[]")
+    call_logs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return call_logs[:limit]
+
+
+# ============================================================================
+# PROMPT STORAGE
+# ============================================================================
+
+async def create_prompt_template(prompt_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a new prompt template."""
+    async with _write_lock:
+        prompts = json.loads(PROMPTS_FILE.read_text() or "{}")
+        
+        prompt_id = str(uuid.uuid4())
+        prompt_data["id"] = prompt_id
+        prompt_data["created_at"] = datetime.utcnow().isoformat()
+        
+        prompts[prompt_id] = prompt_data
+        PROMPTS_FILE.write_text(json.dumps(prompts, indent=2))
+    
+    return prompt_data
+
+
+async def get_prompt_template(prompt_id: str) -> Optional[Dict[str, Any]]:
+    """Get a prompt template by ID."""
+    prompts = json.loads(PROMPTS_FILE.read_text() or "{}")
+    return prompts.get(prompt_id)
+
+
+async def list_prompt_templates() -> List[Dict[str, Any]]:
+    """List all prompt templates."""
+    prompts = json.loads(PROMPTS_FILE.read_text() or "{}")
+    return list(prompts.values())
+
+
+async def update_prompt_template(prompt_id: str, prompt_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Update a prompt template."""
+    async with _write_lock:
+        prompts = json.loads(PROMPTS_FILE.read_text() or "{}")
+        
+        if prompt_id not in prompts:
+            return None
+        
+        prompt_data["id"] = prompt_id
+        prompt_data["created_at"] = prompts[prompt_id].get("created_at", datetime.utcnow().isoformat())
+        prompts[prompt_id] = prompt_data
+        PROMPTS_FILE.write_text(json.dumps(prompts, indent=2))
+    
+    return prompt_data
+
+
+async def delete_prompt_template(prompt_id: str) -> bool:
+    """Delete a prompt template."""
+    async with _write_lock:
+        prompts = json.loads(PROMPTS_FILE.read_text() or "{}")
+        
+        if prompt_id in prompts:
+            del prompts[prompt_id]
+            PROMPTS_FILE.write_text(json.dumps(prompts, indent=2))
+            return True
+        return False
+
+
+
+----------------------------------------
+
+============================================
+FOLDER: app/models/
+============================================
+
+----------------------------------------
+FILE: app/models/__init__.py
+----------------------------------------
+"""Pydantic models package."""
+
+from app.models.business import Business
+from app.models.call_log import CallLog
+from app.models.prompt_template import PromptTemplate
+
+__all__ = ["Business", "CallLog", "PromptTemplate"]
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/models/business.py
+----------------------------------------
+"""Business (tenant) model - Pydantic-based."""
+
+from typing import Optional
+from pydantic import BaseModel
+
+
+class Business(BaseModel):
+    """Business tenant model for JSON storage."""
+    id: Optional[str] = None
+    phone_number: str
+    display_name: str
+    city: Optional[str] = None
+    hours: Optional[str] = None
+    services: Optional[str] = None
+    fallback_number: str
+
+    # Slack integration
+    nango_connection_id: Optional[str] = None
+    slack_workspace: Optional[str] = None
+    slack_live_channel: Optional[str] = None
+    slack_summary_channel: Optional[str] = None
+
+    # Voice config (shared)
+    voice_id: str = "pMsXgVXv3BLzUgSXRplE"
+
+    # Outbound settings
+    outbound_welcome_template: Optional[str] = None
+    callback_trigger_phrase: str = "Would you like us to call you back?"
+    max_call_duration_minutes: int = 10
+    enable_voice_callbacks: bool = True
+    inject_chat_context: bool = True
+    post_call_summary_to_chat: bool = False
+
+    # Inbound settings
+    inbound_welcome_template: Optional[str] = None
+    enable_inbound_call_handling: bool = True
+
+    # Shared behavior
+    human_transfer_on_escalation: bool = True
+    check_with_owner_before_transfer: bool = True
+    owner_check_method: str = "slack"  # slack | call | both
+    owner_check_timeout_seconds: int = 30
+    intent_based_transfer_detection: bool = True
+    owner_initiated_handover: bool = True
+    live_transcript_to_slack: bool = True
+    whisper_coaching_via_slack: bool = True
+    call_recording_enabled: bool = True
+
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "phone_number": "+19876543210",
+                "display_name": "Acme Corp",
+                "fallback_number": "+19876543211",
+            }
+        }
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/models/call_log.py
+----------------------------------------
+"""Call log model for analytics and debugging - Pydantic-based."""
+
+from typing import Optional
+from pydantic import BaseModel
+
+
+class CallLog(BaseModel):
+    """Call log model for JSON storage."""
+    id: Optional[str] = None
+    business_id: str
+    call_type: str  # inbound | outbound
+    vapi_call_id: str
+    customer_phone: Optional[str] = None
+    customer_name: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    outcome: Optional[str] = None  # resolved | transferred | abandoned | timeout | owner_declined
+    transcript: Optional[str] = None
+    summary: Optional[str] = None
+    credits_used: Optional[int] = None
+    slack_live_thread_ts: Optional[str] = None
+    slack_summary_thread_ts: Optional[str] = None
+    created_at: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "business_id": "some-uuid",
+                "call_type": "outbound",
+                "vapi_call_id": "vapi-call-id",
+                "customer_phone": "+19876543210",
+            }
+        }
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/models/prompt_template.py
+----------------------------------------
+"""Prompt template model - Pydantic-based."""
+
+from typing import Optional
+from pydantic import BaseModel
+
+
+class PromptTemplate(BaseModel):
+    """Prompt template model for JSON storage."""
+    id: Optional[str] = None
+    shared_system_prompt: str
+    updated_at: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "shared_system_prompt": "You are a helpful assistant...",
+            }
+        }
+
+----------------------------------------
+
+============================================
+FOLDER: app/routers/
+============================================
+
+----------------------------------------
+FILE: app/routers/__init__.py
+----------------------------------------
+"""Routers package."""
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/routers/businesses.py
+----------------------------------------
+"""CRUD endpoints for business (tenant) management."""
+
+from typing import List, Optional
+
+from fastapi import APIRouter, HTTPException
+
+from app.core import json_storage
+from app.models.business import Business
+from app.schemas.business import BusinessCreate, BusinessResponse, BusinessUpdate
+
+router = APIRouter()
+
+
+@router.post("/", response_model=BusinessResponse, status_code=201)
+async def create_business(business_data: BusinessCreate):
+    """Register a new business."""
+    # Check if phone number already exists
+    existing = await json_storage.get_business_by_phone(business_data.phone_number)
+    if existing:
+        raise HTTPException(status_code=400, detail="Phone number already registered")
+
+    business = Business(**business_data.model_dump())
+    result = await json_storage.create_business(business.model_dump())
+    return result
+
+
+@router.get("/", response_model=List[BusinessResponse])
+async def list_businesses():
+    """List all registered businesses."""
+    return await json_storage.list_businesses()
+
+
+@router.get("/lookup", response_model=Optional[BusinessResponse])
+async def lookup_business_by_phone(phone: str):
+    """Find business by phone number (used for inbound ANI lookup)."""
+    return await json_storage.get_business_by_phone(phone)
+
+
+@router.get("/{business_id}", response_model=BusinessResponse)
+async def get_business(business_id: str):
+    """Get a single business by ID."""
+    business = await json_storage.get_business(business_id)
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+    return business
+
+
+@router.put("/{business_id}", response_model=BusinessResponse)
+async def update_business(business_id: str, update_data: BusinessUpdate):
+    """Update an existing business."""
+    existing = await json_storage.get_business(business_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    # Merge update data with existing
+    merged = {**existing, **update_data.model_dump(exclude_unset=True)}
+    result = await json_storage.update_business(business_id, merged)
+    return result
+
+
+@router.delete("/{business_id}", status_code=204)
+async def delete_business(business_id: str):
+    """Delete a business."""
+    success = await json_storage.delete_business(business_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Business not found")
+    return None
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/routers/onboarding.py
+----------------------------------------
+"""Slack OAuth onboarding flow using Nango."""
+
+import hmac
+import json
+import uuid
+from hashlib import sha256
+
+import httpx
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse
+
+from app.core.config import settings
+from app.core import json_storage
+from app.services.nango_service import nango_client
+
+router = APIRouter()
+
+
+def _normalize_phone(phone: str) -> str:
+    return "".join(filter(str.isdigit, phone))[-10:]
+
+
+def _connection_uuid_for_phone(phone: str) -> uuid.UUID:
+    # Deterministic UUID keeps stable Nango connection IDs.
+    return uuid.uuid5(uuid.NAMESPACE_DNS, f"superowl-nango-{_normalize_phone(phone)}")
+
+
+async def _find_business_by_phone(phone: str):
+    candidates = [phone, f"+91{_normalize_phone(phone)}", _normalize_phone(phone)]
+    for candidate in candidates:
+        business = await json_storage.get_business_by_phone(candidate)
+        if business:
+            return business
+    return None
+
+
+def _verify_nango_signature(raw_body: bytes, signature: str | None) -> bool:
+    if not settings.NANGO_WEBHOOK_SECRET:
+        return True
+    if not signature:
+        return False
+    expected = hmac.new(
+        settings.NANGO_WEBHOOK_SECRET.encode("utf-8"),
+        raw_body,
+        sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+@router.get("/connect/session")
+async def create_nango_session(phone: str):
+    """Start Slack OAuth flow for a business phone number."""
+    business = await _find_business_by_phone(phone)
+    if not business:
+        # List all businesses for debugging
+        all_biz = await json_storage.list_businesses()
+        biz_phones = [b.get("phone_number") for b in all_biz]
+        raise HTTPException(
+            status_code=404,
+            detail=f"Business not found for phone '{phone}'. Available phones: {biz_phones}"
+        )
+
+    connection_uuid = _connection_uuid_for_phone(phone)
+    connection_id = str(connection_uuid)
+
+    try:
+        session_data = await nango_client.create_session(connection_id)
+        # Persist only after Nango accepted the session request.
+        business["nango_connection_id"] = connection_id
+        await json_storage.update_business(business["id"], business)
+        return {"connect_link": session_data.get("data", {}).get("connect_link")}
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        response_text = e.response.text if e.response is not None else ""
+        if "resource_capped" in response_text:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Nango has reached the connection limit for this workspace. "
+                    "Free up an existing connection or upgrade the Nango plan, then retry."
+                ),
+            ) from e
+        raise HTTPException(status_code=502, detail=f"Nango rejected the session request: {response_text or str(e)}") from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Nango session creation failed: {type(e).__name__}: {e}")
+
+
+@router.get("/callback/slack")
+async def slack_oauth_callback(request: Request):
+    """OAuth callback after Slack connection."""
+    # Nango handles the actual OAuth; this is a dummy endpoint
+    # The real integration happens via Nango webhook
+    return HTMLResponse("<h1>Slack Connected! You can close this window.</h1>")
+
+
+@router.post("/webhook/slack")
+async def nango_webhook(request: Request):
+    """Handle Nango auth webhooks and finalize workspace metadata."""
+    raw_body = await request.body()
+    signature = request.headers.get("x-nango-signature")
+    if not _verify_nango_signature(raw_body, signature):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    try:
+        payload = json.loads(raw_body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    connection_id = (
+        payload.get("connectionId")
+        or payload.get("connection_id")
+        or payload.get("connection", {}).get("id")
+        or payload.get("data", {}).get("connectionId")
+        or payload.get("data", {}).get("connection_id")
+    )
+    end_user_id = (
+        payload.get("endUser", {}).get("id")
+        or payload.get("end_user", {}).get("id")
+        or payload.get("data", {}).get("endUser", {}).get("id")
+        or payload.get("data", {}).get("end_user", {}).get("id")
+    )
+
+    candidate_id = connection_id or end_user_id
+    if not candidate_id:
+        return {"status": "ignored", "reason": "missing_connection_id"}
+
+    try:
+        connection_uuid = uuid.UUID(str(candidate_id))
+    except ValueError:
+        # Nango may send non-UUID connection IDs
+        return {"status": "ignored", "reason": "connection_id_not_uuid"}
+
+    # Find business by nango_connection_id
+    businesses = await json_storage.list_businesses()
+    business = None
+    for b in businesses:
+        if b.get("nango_connection_id") == str(connection_uuid):
+            business = b
+            break
+    
+    if not business:
+        return {"status": "ignored", "reason": "business_not_found"}
+
+    workspace = (
+        payload.get("provider", {}).get("name")
+        or payload.get("provider_config_key")
+        or payload.get("data", {}).get("provider", {}).get("name")
+        or business.get("slack_workspace")
+        or "Slack"
+    )
+
+    # Persist workspace name to a stable key and keep backward compatibility
+    business["slack_workspace"] = workspace
+    business["slack_workspace_name"] = workspace
+
+    # Try to fetch Nango connection details (may include access tokens/credentials)
+    try:
+        conn_info = await nango_client.get_connection(str(connection_uuid))
+        data = {}
+        if isinstance(conn_info, dict):
+            # Nango responses might place tokens under 'data' or 'credentials'
+            data = conn_info.get("data") or conn_info.get("credentials") or {}
+        # Try common token field names
+        token = (
+            (data.get("access_token") if isinstance(data, dict) else None)
+            or (data.get("oauth_token") if isinstance(data, dict) else None)
+            or (data.get("token") if isinstance(data, dict) else None)
+            or (data.get("credentials", {}).get("access_token") if isinstance(data.get("credentials"), dict) else None)
+            or (data.get("oauth", {}).get("access_token") if isinstance(data.get("oauth"), dict) else None)
+        )
+        if token:
+            business["slack_access_token"] = token
+    except Exception:
+        # Don't fail webhook if fetching connection details fails; it's best-effort.
+        pass
+
+    await json_storage.update_business(business["id"], business)
+    return {"status": "ok", "business_id": str(business["id"]), "workspace": workspace}
+
+
+@router.get("/slack/channels")
+async def list_slack_channels(phone: str):
+    """List available Slack channels for a connected business."""
+    business = await _find_business_by_phone(phone)
+
+    if not business or not business.get("nango_connection_id"):
+        raise HTTPException(status_code=404, detail="Business not connected to Slack")
+
+    try:
+        channels = await nango_client.list_channels(str(business.get("nango_connection_id")))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Slack not fully connected: {e}")
+    return [{"id": c["id"], "name": c["name"]} for c in channels]
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/routers/playground.py
+----------------------------------------
+"""Playground endpoints for testing calls and seeding demo data."""
+
+from typing import Optional, Any, cast
+import re
+
+import httpx
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
+from pydantic import BaseModel
+
+from app.core.config import settings
+from app.core import json_storage
+from app.services.call_orchestrator import trigger_outbound_callback
+from app.services.groq_service import groq_service
+from app.services.prompt_builder import prompt_builder
+
+router = APIRouter()
+
+VOICE_PREVIEW_TEXT = "Hi, I am Ananya from SuperOwl. This is a quick voice preview for your business assistant."
+
+DEFAULT_SHARED_PROMPT = """You are {{agentName}}, a warm, friendly, and professional voice assistant for {{businessName}} in {{city}}.
+
+Speak naturally and calmly. Keep responses short, clear, and human. This is a live voice call, so avoid long explanations.
+
+Your goals:
+- Understand the caller's request from the conversation or chat context
+- Answer product, service, pricing, and booking questions clearly
+- If the caller needs the owner or the issue is urgent, offer a transfer
+- Confirm the caller's name and callback number before ending the call
+
+If transferring, say: "Let me connect you with our team directly."
+Then transfer to {{fallbackNumber}}."""
+
+DEMO_BUSINESS_NAME = "Sweet Root – Toys & Memories"
+
+
+def _seed_fallback_number() -> str:
+    return settings.BUSINESS_FALLBACK_NUMBER or settings.BUSINESS_PHONE_NUMBER
+
+
+_TOOL_CALL_PATTERNS = [
+    re.compile(r"\bnotify_owner\s*\([^)]*\)", re.IGNORECASE),
+    re.compile(r"\bend_call_tool\s*\([^)]*\)", re.IGNORECASE),
+    re.compile(r"\btransfer_call_tool\s*\([^)]*\)", re.IGNORECASE),
+    re.compile(r"\bsearch_knowledge_base\s*\([^)]*\)", re.IGNORECASE),
+]
+
+
+def _sanitize_playground_reply(reply: str) -> str:
+    cleaned = reply or ""
+    for pattern in _TOOL_CALL_PATTERNS:
+        cleaned = pattern.sub("", cleaned)
+
+    cleaned = re.sub(r"\(\s*\)", "", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+@router.post("/seed")
+async def seed_demo_data():
+    """
+    Seed a demo business and shared prompt for fresh installs.
+    Idempotent — safe to call multiple times.
+    Returns the business_id to construct the dashboard URL:
+      http://localhost:8000/?business_id=<id>
+    """
+    # Fetch all businesses and look for demo business
+    businesses = await json_storage.list_businesses()
+    existing = None
+    for biz in businesses:
+        if biz.get("display_name") == DEMO_BUSINESS_NAME:
+            existing = biz
+            break
+    
+    if existing:
+        # Update phone/fallback in case env changed
+        existing["phone_number"] = settings.BUSINESS_PHONE_NUMBER
+        existing["fallback_number"] = _seed_fallback_number()
+        await json_storage.update_business(existing["id"], existing)
+        return {
+            "status": "already_seeded",
+            "business_id": str(existing["id"]),
+            "dashboard_url": f"http://localhost:8000/?business_id={existing['id']}",
+        }
+
+    biz_data = {
+        "phone_number": settings.BUSINESS_PHONE_NUMBER,
+        "display_name": DEMO_BUSINESS_NAME,
+        "city": "Bengaluru",
+        "hours": "10 AM – 7 PM, Mon–Sat",
+        "services": "Wooden toys, birthday parties, creative play sessions, memory quilts",
+        "fallback_number": _seed_fallback_number(),
+        "voice_id": "pMsXgVXv3BLzUgSXRplE",
+        "outbound_welcome_template": (
+            "Hi {customer_name}, this is Ananya calling from {business_name}! "
+            "I was just speaking with you on our chat. How can I assist you today?"
+        ),
+        "inbound_welcome_template": (
+            "Thank you for calling {{businessName}}! I'm Ananya, your AI assistant. "
+            "How can I help you today?"
+        ),
+        "callback_trigger_phrase": "Would you like us to call you back for a more detailed discussion?",
+    }
+    biz = await json_storage.create_business(biz_data)
+
+    # Seed shared prompt only if none exists
+    templates = await json_storage.list_prompt_templates()
+    if not templates or len(templates) == 0:
+        await json_storage.create_prompt_template({
+            "name": "default",
+            "shared_system_prompt": DEFAULT_SHARED_PROMPT,
+        })
+
+    return {
+        "status": "seeded",
+        "business_id": str(biz["id"]),
+        "dashboard_url": f"http://localhost:8000/?business_id={biz['id']}",
+    }
+
+
+class OutboundTestRequest(BaseModel):
+    business_id: str
+    customer_name: str = "Playground User"
+    customer_phone: str
+    chat_summary: str = "Playground-triggered callback request"
+
+
+@router.get("/voice-preview")
+async def voice_preview(voice_id: str):
+    """Return MP3 preview audio for a given ElevenLabs voice id."""
+    if not settings.ELEVENLABS_API_KEY:
+        raise HTTPException(
+            status_code=400,
+            detail="Direct preview audio is not configured. VAPI will still apply this voice on real calls.",
+        )
+
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    payload = {
+        "text": VOICE_PREVIEW_TEXT,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {"stability": 0.45, "similarity_boost": 0.8},
+    }
+    headers = {
+        "xi-api-key": settings.ELEVENLABS_API_KEY,
+        "accept": "audio/mpeg",
+        "content-type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        if resp.is_error:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Voice preview failed ({resp.status_code}): {resp.text}",
+            )
+
+    return Response(content=resp.content, media_type="audio/mpeg")
+
+
+@router.post("/test-outbound")
+async def test_outbound(req: OutboundTestRequest):
+    """Trigger a real outbound callback for testing."""
+    business = await json_storage.get_business(req.business_id)
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    try:
+        # Trigger outbound callback (chat_summary provided separately)
+        call = await trigger_outbound_callback(
+            business=business,
+            customer_name=req.customer_name,
+            customer_phone=req.customer_phone,
+            chat_summary=req.chat_summary,
+            chat_history=None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Outbound test failed: {e}")
+    return {
+        "status": "ok",
+        "message": "Outbound call initiated",
+        "call_id": call.get("id"),
+    }
+
+
+@router.post("/test-inbound")
+async def test_inbound():
+    """Simulate an inbound call for testing."""
+    return {
+        "status": "ok",
+        "message": "Inbound tests are driven by /vapi-webhook events; use VAPI test webhook payloads.",
+    }
+
+
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    business_id: str
+    message: str
+    history: Optional[list] = None
+
+
+@router.post("/chat")
+async def playground_chat(req: ChatRequest):
+    """Chat endpoint for playground — uses real Groq + business system prompt."""
+    business = await json_storage.get_business(req.business_id)
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    templates = await json_storage.list_prompt_templates()
+    shared_prompt = DEFAULT_SHARED_PROMPT
+    if templates and len(templates) > 0:
+        template = templates[0]
+        if isinstance(template, dict):
+            shared_prompt = template.get("shared_system_prompt", DEFAULT_SHARED_PROMPT)
+        elif hasattr(template, "shared_system_prompt"):
+            shared_prompt = template.shared_system_prompt
+
+    business_dict = {
+        "display_name": str(business.get("display_name") or ""),
+        "city": str(business.get("city") or ""),
+        "hours": str(business.get("hours") or ""),
+        "services": str(business.get("services") or ""),
+        "fallback_number": str(business.get("fallback_number") or ""),
+    }
+    # Pass an explicit extra_vars so build_system_prompt signature remains stable
+    system_prompt = prompt_builder.build_system_prompt(shared_prompt, business_dict, is_outbound=True, extra_vars={})
+
+    messages = [{"role": "system", "content": system_prompt}]
+    for h in (req.history or []):
+        if isinstance(h, dict):
+            role = h.get("role")
+            content = h.get("content")
+        else:
+            role = getattr(h, "role", None)
+            content = getattr(h, "content", None)
+
+        if role and content is not None:
+            messages.append({"role": str(role), "content": str(content)})
+    messages.append({"role": "user", "content": req.message})
+
+    response = groq_service.client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=cast(Any, messages),
+        temperature=0.3,
+        max_tokens=200,
+    )
+    reply = response.choices[0].message.content or "I'm not sure how to help with that."
+    reply = _sanitize_playground_reply(reply) or "I'm here to help. Could you share a little more about what you need?"
+
+    # Detect callback triggers
+    triggers = ["callback", "book", "call you", "speak with", "contact", "team", "schedule"]
+    source_text = f"{req.message.lower()} {reply.lower()}"
+    needs_callback = any(t in source_text for t in triggers)
+
+    # Generate chat summary from history for callback context
+    # Find this section in playground_chat function (lines 245-250):
+    # Generate chat summary from history for callback context
+    chat_summary = ""
+    if needs_callback and (req.history or []):
+        # Build messages list for summarization
+        history_messages = []
+        for h in (req.history or []):
+            if isinstance(h, dict):
+                role = h.get("role")
+                content = h.get("content")
+            else:
+                role = getattr(h, "role", None)
+                content = getattr(h, "content", None)
+            if role and content:
+                prefix = "Customer:" if role == "user" else "Assistant:"
+                history_messages.append(f"{prefix} {content}")
+        
+        # Create summary prompt
+        summary_prompt = f"""Summarize this customer conversation in ONE sentence (max 15 words).
+Focus on what the customer wants. Be specific.
+
+Conversation:
+{chr(10).join(history_messages)}
+
+Summary:"""
+        
+        try:
+            summary_response = groq_service.client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=cast(Any, [{"role": "user", "content": summary_prompt}]),
+                temperature=0.3,
+                max_tokens=50,
+            )
+            summary_content = summary_response.choices[0].message.content
+            chat_summary = summary_content.strip() if summary_content else "Customer requested a callback about their inquiry."
+        except Exception as e:
+            print(f"Summary generation failed: {e}")
+            chat_summary = "Customer requested a callback about their inquiry."
+
+    return {"reply": reply, "needs_callback": needs_callback, "chat_summary": chat_summary}
+
+
+@router.get("/analytics/{business_id}")
+async def get_analytics(business_id: str):
+    """Return call analytics summary for a business."""
+    logs = await json_storage.list_call_logs_for_business(business_id, limit=1000)
+    
+    total = len(logs)
+    resolved = sum(1 for l in logs if l.get("outcome") == "resolved")
+    transferred = sum(1 for l in logs if l.get("outcome") == "transferred")
+    inbound = sum(1 for l in logs if l.get("call_type") == "inbound")
+    outbound = sum(1 for l in logs if l.get("call_type") == "outbound")
+    durations = [l.get("duration_seconds") or 0 for l in logs]
+    avg_duration = int(sum(durations) / len(durations)) if durations else 0
+    credits = sum(l.get("credits_used") or 0 for l in logs)
+    resolution_rate = round(resolved / total * 100) if total else 0
+
+    # Recent calls are already sorted by created_at descending by list_call_logs_for_business
+    recent = logs[:10]
+    recent_calls = [
+        {
+            "call_type": l.get("call_type", ""),
+            "customer_phone": l.get("customer_phone", ""),
+            "customer_name": l.get("customer_name", ""),
+            "duration_seconds": l.get("duration_seconds", 0),
+            "outcome": l.get("outcome", ""),
+            "credits_used": l.get("credits_used", 0),
+            "created_at": str(l.get("created_at", "")),
+        }
+        for l in recent
+    ]
+
+    return {
+        "total": total,
+        "inbound": inbound,
+        "outbound": outbound,
+        "resolved": resolved,
+        "transferred": transferred,
+        "resolution_rate": resolution_rate,
+        "avg_duration_seconds": avg_duration,
+        "credits_used": credits,
+        "recent_calls": recent_calls,
+    }
+
+
+class GeneratePromptRequest(BaseModel):
+    current_prompt: str
+    business_name: str = "the business"
+    city: str = "Bengaluru"
+    industry: str = "general"
+
+
+@router.post("/generate-prompt")
+async def generate_system_prompt(req: GeneratePromptRequest):
+    """
+    Use Groq to generate an optimized voice assistant system prompt.
+    Takes raw business info and formats it into a high-performance Voice AI prompt.
+    """
+    improvement_prompt = f"""You are an expert at optimizing text for Voice AI agents (like ElevenLabs + GPT).
+    
+    TASK:
+    Take the "Raw Business Info" below and rewrite it into a clean, structured **System Prompt**.
+    
+    CRITICAL RULES:
+    1. **DO NOT REMOVE ANY DETAILS.** Keep all specific data (Prices, Locations, Phone Numbers, Hours).
+    2. **DO NOT USE PLACEHOLDERS** (like {{variable}}) unless they are generic (like {{businessName}}).
+    3. **VOICE OPTIMIZATION:** Rewrite long sentences into short, punchy ones. The AI should speak naturally.
+    4. **STRUCTURE:** Organize the text into these sections:
+       - [Role] (Who the AI is)
+       - [Business Facts] (Hard data: Price, Location, Hours)
+       - [Conversation Flow] (How to handle questions)
+       - [Rules] (Keep it under 20 words per response)
+    
+    RAW BUSINESS INFO:
+    {req.current_prompt}
+    
+    Business Name: {req.business_name}
+    City: {req.city}
+    
+    Return ONLY the optimized System Prompt. Do not add any explanation or chat."""
+
+    try:
+        response = groq_service.client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=cast(Any, [
+                {
+                    "role": "system",
+                    "content": "You are an expert at structuring raw business notes into high-performance Voice AI System Prompts.",
+                },
+                {"role": "user", "content": improvement_prompt},
+            ]),
+            temperature=0.3,
+            max_tokens=1000,
+        )
+        generated_prompt = response.choices[0].message.content or req.current_prompt
+    except Exception as e:
+        print(f"Prompt generation failed: {e}")
+        generated_prompt = req.current_prompt
+
+    return {"prompt": generated_prompt}
+
+
+class GenerateWelcomeRequest(BaseModel):
+    type: str  # "outbound" or "inbound"
+    current_message: str
+    business_name: str = "the business"
+
+
+@router.post("/generate-welcome")
+async def generate_welcome_message(req: GenerateWelcomeRequest):
+    """
+    Use Groq to generate an optimized welcome message for inbound or outbound calls.
+    """
+    if req.type == "outbound":
+        instruction = """This is an OUTBOUND callback message. The AI is calling the customer back after they requested it in a chat.
+The message should:
+- Greet the customer by name
+- Reference the previous chat conversation
+- Be warm and helpful
+- Keep it under 20 words
+- Use {{customer_name}} and {{business_name}} placeholders
+
+Current message:
+{current}
+
+Business: {biz}
+
+Return ONLY the improved message with {{customer_name}} and {{business_name}} placeholders preserved.""".format(
+            current=req.current_message, biz=req.business_name
+        )
+    else:
+        instruction = """This is an INBOUND call greeting. The customer called the business and the AI answered.
+The message should:
+- Thank the customer for calling
+- Introduce the AI assistant
+- Ask how to help
+- Keep it under 15 words
+- Use {{businessName}} placeholder
+
+Current message:
+{current}
+
+Business: {biz}
+
+Return ONLY the improved message with {{businessName}} placeholder preserved.""".format(
+            current=req.current_message, biz=req.business_name
+        )
+
+    try:
+        response = groq_service.client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=cast(Any, [
+                {
+                    "role": "system",
+                    "content": "You are an expert at crafting natural, friendly voice AI welcome messages.",
+                },
+                {"role": "user", "content": instruction},
+            ]),
+            temperature=0.5,
+            max_tokens=100,
+        )
+        generated_message = response.choices[0].message.content or req.current_message
+    except Exception as e:
+        print(f"Welcome message generation failed: {e}")
+        generated_message = req.current_message
+
+    return {"message": generated_message}
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/routers/prompts.py
+----------------------------------------
+"""Shared system prompt management."""
+
+from fastapi import APIRouter
+
+from app.core import json_storage
+from app.schemas.webhook import PromptUpdate
+
+router = APIRouter()
+
+
+@router.get("/shared")
+async def get_shared_prompt():
+    """Get the global shared system prompt template."""
+    templates = await json_storage.list_prompt_templates()
+    if templates and len(templates) > 0:
+        template = templates[0]
+        if isinstance(template, dict):
+            return {"prompt": template.get("shared_system_prompt", "")}
+        elif hasattr(template, "shared_system_prompt"):
+            return {"prompt": template.shared_system_prompt}
+    # Default prompt
+    return {
+        "prompt": """You are {{agentName}}, a helpful voice assistant speaking with real people over a live phone call for {{businessName}} in {{city}}.
+If this call is a callback after a chat, mention the customer's prior enquiry: "{{chatSummary}}" and address the caller by name: "{{customerName}}".
+THINK STEP BY STEP.
+SPEAKING STYLE:
+- Sound warm, calm, and natural.
+- Keep responses short enough for voice — not abrupt, but never rambling.
+- Use light acknowledgments like "Got it", "Makes sense", or "Sure" when appropriate.
+- Mirror the caller's tone: reassuring when confused, upbeat when interested, calm when frustrated.
+- Never match an angry or rude tone. Stay composed and warm regardless.
+
+HOW TO SPEAK NUMBERS:
+- Say numbers naturally in words. Example: 399 → "three hundred ninety nine".
+- Say amounts naturally. Example: 3990 → "three thousand nine hundred ninety".
+- Do not say currency symbols.
+- Do not read normal amounts digit-by-digit.
+
+HOW TO SPEAK PHONE NUMBERS:
+- Speak phone numbers digit by digit with natural pauses.
+- Example: "nine eight seven, six five four, three two one zero".
+
+CONVERSATION RHYTHM:
+- Ask one question at a time.
+- Wait for the customer to finish before asking the next thing.
+- If they pause, give them a moment before jumping in.
+- Do not repeat the same question more than twice.
+
+
+
+TOOL ORCHESTRATION:
+
+1. search_knowledge_base(query)(skip this tool for now)
+    - Use this when the customer asks for details not already available in the current conversation.
+    - If no useful answer is found, say: "Let me get our team's contact for that. Would a callback help?"
+    - If the lookup fails or times out, say: "I don't have that detail right now, but our team can help when we talk."
+
+2. notify_owner(customer_name, call_summary, lead_reason)
+   - Call this ONLY when the customer is a qualified lead for {{businessName}}:
+     they want to book, ask to proceed, share event details (kids count, date, etc.),
+     or show clear intent to use {{businessName}}'s services or say that they want to escalate.
+   - Do NOT call this for general inquiries, price questions only, or exploratory chats.
+   - Always pass: customer_name, call_summary, lead_reason.
+   - After calling it, say: "Let me quickly check availability with our team — please hold for just a moment."
+   - If notify_owner does not get a system response within ~15 seconds, say:
+     "I'm having a little trouble reaching the team right now. Can I ask someone call you back?"
+     Then end_call_tool.
+
+3. transfer_call_tool
+    - You do NOT have a transfer tool. You CANNOT transfer calls yourself under any circumstance.
+- Transfer happens AUTOMATICALLY when the system confirms the owner is available.
+- Your only job is to notify_owner → wait → the system handles transfer if the owner picks up.
+- If the customer says "urgent", "transfer me now", or "connect me immediately":
+  Do NOT attempt to transfer. Say: "I'll let the owner know right away — please hold a moment."
+  Then call notify_owner as normal.
+- When the system confirms the owner is ready, say:
+  "Great news — the owner is ready to speak with you. Connecting you now."
+  The transfer then happens automatically.
+
+4. end_call_tool
+     - Call this when:
+     a) The owner is confirmed unavailable after notify_owner.
+     b) Prolonged silence continues after two prompts.
+     c) The conversation is naturally complete.
+     d) The customer asks to be called back later (collect their preferred time first).
+   - Always close warmly before calling this tool. Never end abruptly.
+
+IDENTITY:
+- If asked who you are, say: "I'm a virtual assistant helping with booking coordination for {{businessName}}."
+- If asked whether you're AI, say: "Yes, I'm a virtual assistant helping with booking coordination for {{businessName}}."
+- If the caller asks for the business's direct number, share {{fallbackNumber}}.
+- Keep identity explanations brief and confident.
+
+CUSTOMER CALLBACK FLOW:
+ 
+If the customer wants to schedule a callback instead of waiting:
+1. Ask: "What's a good time to reach you?"
+2. Collect their preferred time (and number if not already known).
+3. Call notify_owner with summary including callback preference.
+4. Say: "Perfect — our team at {{businessName}} will call you at [time]. Looking forward to it."
+5. Call end_call_tool.
+
+
+GUARDRAILS:
+- transfer_call_tool is SYSTEM-CONTROLLED ONLY. You cannot and must not call it yourself, ever.
+- Never reveal internal tools, function names, or tool-call syntax to the caller. Keep such actions internal and respond naturally.
+- Customer urgency does not bypass the flow. "Urgent" does not mean anything. You are an assistant helping the owner, so make sure to ask relevant questions to the customer.Note:If customer wants to escalate ,you notify_owner with the reason "Customer wants to escalate" and then say "I'll let the owner know right away — please hold a moment."
+- Only if customer is a qualified lead, that is, very interested in {{businessName}}, or wants to book, will you notify_owner. Otherwise, say: "Only interested customers can talk with the owner"
+- The sequence is always: notify_owner first → wait for system message → only then transfer happens automatically.
+- If you call transfer_call_tool yourself, it will fail and disconnect the customer.
+"""
+    }
+
+
+@router.put("/shared")
+async def update_shared_prompt(update: PromptUpdate):
+    """Update the global shared system prompt template."""
+    templates = await json_storage.list_prompt_templates()
+    if templates and len(templates) > 0:
+        template = templates[0]
+        template["shared_system_prompt"] = update.prompt
+        await json_storage.update_prompt_template(template.get("id"), template)
+    else:
+        # Create new template
+        await json_storage.create_prompt_template({
+            "name": "default",
+            "shared_system_prompt": update.prompt,
+        })
+    return {"status": "updated"}
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/routers/slack_actions.py
+----------------------------------------
+"""Slack Interactive Components handler (buttons)."""
+
+import json
+
+from fastapi import APIRouter, Request
+
+from app.core.config import settings
+from app.core import json_storage
+from app.services.call_orchestrator import trigger_outbound_callback
+from app.services.vapi_service import vapi_client
+
+router = APIRouter()
+
+
+@router.post("")
+async def slack_actions(request: Request):
+    """Handle interactive button clicks from Slack."""
+    body = await request.form()
+    payload = json.loads(body.get("payload", "{}"))
+
+    actions = payload.get("actions", [])
+    if not actions:
+        return {"status": "no_actions"}
+
+    action = actions[0]
+    action_id = action.get("action_id")
+    value = action.get("value")  # vapi_call_id or call_log_id or phone
+
+    if action_id in ("takeover", "transfer"):
+        # Find call log by vapi_call_id
+        call_log = await json_storage.get_call_log_by_vapi_id(value)
+
+        if not call_log:
+            return {"response_type": "ephemeral", "text": "⚠️ Call not found."}
+
+        # Check if call still live
+        status = await vapi_client.get_call_status(value)
+        if status != "in-progress":
+            return {"response_type": "ephemeral", "text": "⚠️ Call has already ended."}
+
+        # Get business for fallback number
+        business = await json_storage.get_business(call_log["business_id"])
+
+        if not business:
+            return {"response_type": "ephemeral", "text": "⚠️ Business not found."}
+
+        # Transfer call
+        destination = {
+            "type": "sip",
+            "sipUri": f"sip:{business.get('fallback_number')}@{settings.VOBIZ_SIP_DOMAIN}",
+        }
+        await vapi_client.transfer_call(value, destination)
+
+        return {
+            "response_type": "in_channel",
+            "text": "📞 Transferring call to owner...",
+        }
+
+    elif action_id == "end_call":
+        # End the call
+        try:
+            await vapi_client.end_call(value)
+            return {"response_type": "in_channel", "text": "🔇 Call ended."}
+        except Exception as e:
+            return {"response_type": "ephemeral", "text": f"Error: {e}"}
+
+    elif action_id == "view_transcript":
+        # Fetch full transcript from JSON storage
+        call_log = await json_storage.get_call_log_by_vapi_id(value)
+        if call_log:
+            transcript = call_log.get("transcript") or "No transcript available."
+            return {
+                "response_type": "ephemeral",
+                "text": f"*Full Transcript*\n```{transcript[:3000]}```",
+            }
+        return {"response_type": "ephemeral", "text": "Transcript not found."}
+
+    elif action_id == "callback":
+        # value is customer phone number
+        phone = str(value or "").strip()
+        if not phone:
+            return {"response_type": "ephemeral", "text": "⚠️ Invalid phone number."}
+
+        # Use latest call for this phone to identify business context.
+        all_logs = await json_storage.list_all_call_logs(limit=10000)
+        matching_logs = [log for log in all_logs if log.get("customer_phone") == phone]
+        if not matching_logs:
+            return {
+                "response_type": "ephemeral",
+                "text": f"⚠️ Could not find call context for {phone}.",
+            }
+        # Take the most recent
+        call_log = matching_logs[0]
+
+        business = await json_storage.get_business(call_log["business_id"])
+        if not business:
+            return {"response_type": "ephemeral", "text": "⚠️ Business not found."}
+
+        try:
+            call = await trigger_outbound_callback(
+                business=business,
+                customer_name=call_log.get("customer_name") or "Customer",
+                customer_phone=phone,
+                chat_summary=(call_log.get("summary") or "Callback requested from Slack summary button."),
+                chat_history=None,
+            )
+            return {
+                "response_type": "in_channel",
+                "text": f"📞 Callback initiated for {phone} (call id: {call.get('id', 'unknown')}).",
+            }
+        except Exception as e:
+            return {
+                "response_type": "ephemeral",
+                "text": f"❌ Callback failed: {e}",
+            }
+
+    elif action_id == "mark_resolved":
+        # value is call_log_id
+        call_log = await json_storage.get_call_log(value)
+        if call_log:
+            call_log["outcome"] = "resolved"
+            await json_storage.update_call_log(call_log["id"], call_log)
+            return {"response_type": "in_channel", "text": "✅ Marked as resolved."}
+        return {"response_type": "ephemeral", "text": "Call log not found."}
+
+    elif action_id == "whisper":
+        # Fallback whisper action for button clicks
+        if not value:
+            return {"response_type": "ephemeral", "text": "⚠️ Missing call id."}
+
+        whisper_payload = {
+            "role": "system",
+            "content": "WHISPER FROM OWNER: Please reassure the caller and continue collecting details.",
+        }
+        try:
+            await vapi_client.send_message(str(value), whisper_payload)
+            return {
+                "response_type": "ephemeral",
+                "text": "✅ Whisper sent. For custom whisper text, reply in the call thread.",
+            }
+        except Exception as e:
+            return {
+                "response_type": "ephemeral",
+                "text": f"❌ Whisper failed: {e}",
+            }
+
+    elif action_id == "approve_transfer":
+        # Owner approved transfer — transfer call to owner
+        call_log = await json_storage.get_call_log_by_vapi_id(value)
+        if not call_log:
+            return {"response_type": "ephemeral", "text": "⚠️ Call not found."}
+
+        status = await vapi_client.get_call_status(value)
+        if status != "in-progress":
+            return {"response_type": "ephemeral", "text": "⚠️ Call has already ended."}
+
+        business = await json_storage.get_business(call_log["business_id"])
+        if not business:
+            return {"response_type": "ephemeral", "text": "⚠️ Business not found."}
+
+        destination = {
+            "type": "sip",
+            "sipUri": f"sip:{business.get('fallback_number')}@{settings.VOBIZ_SIP_DOMAIN}",
+        }
+        await vapi_client.transfer_call(value, destination)
+
+        return {
+            "response_type": "in_channel",
+            "text": "✅ Transferring call to owner now...",
+        }
+
+    elif action_id == "decline_transfer":
+        # Owner declined — send message to AI to inform caller
+        try:
+            await vapi_client.send_message(
+                str(value),
+                {
+                    "role": "system",
+                    "content": "The owner is currently unavailable. Say: 'I'm sorry, our team is busy right now. Can I help you with anything else, or would you like me to take a message?'",
+                },
+            )
+            return {
+                "response_type": "in_channel",
+                "text": "❌ Owner declined. AI has been notified.",
+            }
+        except Exception as e:
+            return {"response_type": "ephemeral", "text": f"❌ Failed to notify AI: {e}"}
+
+    return {"status": "unknown_action"}
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/routers/slack_events.py
+----------------------------------------
+"""Slack Events API handler for messages (whisper coaching)."""
+
+from fastapi import APIRouter, Request
+
+from app.core import json_storage
+from app.services.nango_service import nango_client
+from app.services.vapi_service import vapi_client
+
+router = APIRouter()
+
+
+@router.post("")
+async def slack_events(request: Request):
+    """Handle Slack events (URL verification and messages)."""
+    body = await request.json()
+
+    # Slack URL verification challenge
+    if body.get("type") == "url_verification":
+        return {"challenge": body.get("challenge")}
+
+    # Handle event callbacks
+    event = body.get("event", {})
+    event_type = event.get("type")
+
+    if event_type == "message" and event.get("thread_ts"):
+        # Message in a thread — check if it's a live call thread
+        thread_ts = event["thread_ts"]
+        message_text = event.get("text", "")
+        bot_id = event.get("bot_id")
+
+        # Ignore bot messages to prevent loops
+        if bot_id:
+            return {"status": "ignored_bot_message"}
+
+        # Find call log by thread_ts
+        all_logs = await json_storage.list_all_call_logs(limit=10000)
+        call_log = None
+        for log in all_logs:
+            if log.get("slack_live_thread_ts") == thread_ts:
+                call_log = log
+                break
+
+        if not call_log:
+            return {"status": "not_a_call_thread"}
+
+        # Get business to check whisper setting
+        business = await json_storage.get_business(call_log["business_id"])
+
+        if not business or not business.get("whisper_coaching_via_slack", True):
+            return {"status": "whisper_disabled"}
+
+        # Inject whisper into VAPI call
+        whisper_payload = {
+            "role": "system",
+            "content": f"WHISPER FROM OWNER: {message_text}",
+        }
+
+        try:
+            await vapi_client.send_message(call_log["vapi_call_id"], whisper_payload)
+
+            # Confirm in Slack thread
+            if business.get("nango_connection_id") and call_log.get("slack_live_thread_ts"):
+                await nango_client.proxy_request(
+                    connection_id=str(business.get("nango_connection_id")),
+                    method="POST",
+                    endpoint="chat.postMessage",
+                    data={
+                        "channel": business.get("slack_live_channel"),
+                        "thread_ts": call_log.get("slack_live_thread_ts"),
+                        "text": f"✅ Whisper delivered: _{message_text}_",
+                    },
+                )
+        except Exception as e:
+            print(f"Whisper injection failed: {e}")
+
+    return {"status": "ok"}
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/routers/trigger.py
+----------------------------------------
+"""Endpoint for triggering outbound callback."""
+
+from fastapi import APIRouter, HTTPException
+
+from app.core import json_storage
+from app.schemas.call import OutboundCallbackRequest
+from app.services.call_orchestrator import trigger_outbound_callback
+
+router = APIRouter()
+
+
+@router.post("/outbound")
+async def trigger_outbound(request: OutboundCallbackRequest):
+    """
+    Trigger an outbound callback from chat widget.
+    Flow O-1 or O-2 depending on business configuration.
+    """
+    # Lookup business
+    business = await json_storage.get_business(str(request.business_id))
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    if not bool(business.get("enable_voice_callbacks", True)):
+        raise HTTPException(
+            status_code=400, detail="Voice callbacks disabled for this business"
+        )
+
+    # Initiate callback
+    try:
+        result = await trigger_outbound_callback(
+            business=business,
+            customer_name=request.customer_name,
+            customer_phone=request.customer_phone,
+            chat_summary=request.chat_summary,
+            chat_history=request.chat_history,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Outbound trigger failed: {e}")
+
+    return {"call_id": result.get("id"), "status": "initiated"}
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/routers/vapi_webhook.py
+----------------------------------------
+"""VAPI webhook handler for inbound calls and call events."""
+
+import asyncio
+import json
+import re
+from typing import Optional
+
+import httpx
+from fastapi import APIRouter, Request
+
+from app.core import json_storage
+from app.core.config import settings
+from app.services.groq_service import groq_service
+from app.services.nango_service import nango_client
+from app.services.prompt_builder import prompt_builder
+from app.services.slack_service import slack_service
+from app.services.vapi_service import vapi_client
+
+router = APIRouter()
+
+# ── Dual-agent call tracking ──────────────────────────────────────────────
+# Maps owner_call_id → customer_call_id (so /owner-decision can find the customer call)
+owner_to_customer: dict[str, str] = {}
+# Maps customer_call_id → {control_url, business, ...}
+call_sessions: dict[str, dict] = {}
+
+
+async def _get_shared_prompt() -> str:
+    """Get shared system prompt template."""
+    try:
+        templates = await json_storage.list_prompt_templates()
+        if templates:
+            template = templates[0]
+            return template.get("shared_system_prompt", "You are a helpful assistant.")
+    except Exception:
+        pass
+    return "You are a helpful assistant."
+
+
+def extract_ani_from_diversion(diversion: str) -> Optional[str]:
+    """Extract phone number from SIP Diversion header."""
+    if not diversion:
+        return None
+    match = re.search(r"sip:(\+?\d+)", diversion)
+    return match.group(1) if match else None
+
+
+@router.post("")
+async def vapi_webhook(request: Request):
+    """Handle all VAPI call events."""
+    payload = await request.json()
+    message = payload.get("message", {})
+    event_type = message.get("type")
+
+    if event_type == "assistant-request":
+        return await handle_assistant_request(payload)
+    if event_type == "transcript":
+        return await handle_transcript(payload)
+    if event_type == "end-of-call-report":
+        return await handle_end_of_call_report(payload)
+    if event_type == "hang":
+        return {"status": "ok"}
+
+    return {"status": "ignored"}
+
+
+async def handle_assistant_request(payload: dict) -> dict:
+    """Handle VAPI assistant-request for inbound calls."""
+    call_data = payload.get("call", {})
+    phone_data = call_data.get("phoneNumber", {})
+    from_number = phone_data.get("number")
+    diversion = phone_data.get("diversion")
+
+    if from_number == settings.VAPI_OUTBOUND_PHONE:
+        return {
+            "assistantId": settings.VAPI_INBOUND_ASSISTANT_ID or settings.VAPI_OUTBOUND_ASSISTANT_ID,
+            "assistantOverrides": {
+                "firstMessage": "This line is currently busy. Please try again later.",
+            },
+        }
+
+    ani = extract_ani_from_diversion(diversion) or from_number
+    business = await json_storage.get_business_by_phone(ani)
+
+    if not business:
+        return {
+            "assistantId": settings.VAPI_INBOUND_ASSISTANT_ID,
+            "assistantOverrides": {
+                "firstMessage": "This number is not configured for voice service. Please contact the business directly.",
+            },
+        }
+
+    if not bool(business.get("enable_inbound_call_handling", False)):
+        return {
+            "assistantId": settings.VAPI_INBOUND_ASSISTANT_ID,
+            "assistantOverrides": {
+                "firstMessage": "Inbound calls are not enabled for this business.",
+            }
+        }
+
+    shared_prompt = await _get_shared_prompt()
+    business_dict = {
+        "display_name": business.get("display_name", ""),
+        "city": business.get("city", ""),
+        "hours": business.get("hours", ""),
+        "services": business.get("services", ""),
+        "fallback_number": business.get("fallback_number", ""),
+    }
+    system_prompt = prompt_builder.build_system_prompt(
+        shared_prompt, business_dict, is_outbound=False #Triggers inbound logic.
+    )
+
+    first_message = prompt_builder.render(
+        business.get("inbound_welcome_template")
+        or "Thank you for calling {{businessName}}! I'm Ananya, how can I help?",
+        {"businessName": business.get("display_name", "")},
+    )
+
+    vapi_call_id = call_data.get("id")
+    call_log = await json_storage.create_call_log(
+        {
+            "business_id": business.get("id"),
+            "call_type": "inbound",
+            "vapi_call_id": vapi_call_id,
+            "customer_phone": from_number,
+        }
+    )
+
+    if business.get("nango_connection_id") and business.get("slack_live_channel"):
+        try:
+            slack_result = await slack_service.send_live_call_notification(
+                connection_id=str(business.get("nango_connection_id")),
+                channel=str(business.get("slack_live_channel")),
+                call_type="inbound",
+                call_log_id=str(call_log.get("id")),
+                vapi_call_id=vapi_call_id,
+                business_name=business.get("display_name", ""),
+                customer_phone=from_number,
+            )
+            thread_ts = slack_result.get("ts") if isinstance(slack_result, dict) else None
+            if thread_ts:
+                call_log["slack_live_thread_ts"] = thread_ts
+                await json_storage.update_call_log(call_log["id"], call_log)
+        except Exception as e:
+            print(f"Slack live notification failed (non-fatal): {e}")
+
+    assistant_overrides = {
+        "firstMessage": first_message,
+        "variableValues": business_dict,
+    }
+
+    if business.get("human_transfer_on_escalation", False):
+        assistant_overrides["tools"] = [
+            {
+                "type": "transferCall",
+                "destinations": [
+                    {
+                        "type": "sip",
+                        "sipUri": f"sip:{business.get('fallback_number', '')}@{settings.VOBIZ_SIP_DOMAIN}",
+                    }
+                ],
+            }
+        ]
+
+    # Track call session for dual-agent flow
+    call_sessions[vapi_call_id] = {
+        "business_id": business.get("id"),
+        "business": business,
+        "customer_phone": from_number,
+        "owner_call_triggered": False,
+        "owner_call_id": None,
+        "control_url": None,
+    }
+
+    if settings.VAPI_INBOUND_ASSISTANT_ID:
+        # Inject the app's system prompt into the assistant overrides so it
+        # overrides the default prompt configured in the VAPI Dashboard.
+        assistant_overrides["systemPrompt"] = system_prompt
+        return {
+            "assistantId": settings.VAPI_INBOUND_ASSISTANT_ID,
+            "assistantOverrides": assistant_overrides,
+        }
+
+    return {
+        "assistant": {
+            "model": {
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "system", "content": system_prompt}],
+            },
+            "voice": {
+                "provider": "11labs",
+                "voiceId": business.get("voice_id", "pMsXgVXv3BLzUgSXRplE"),
+            },
+            "firstMessage": first_message,
+            "variableValues": business_dict,
+            "maxDurationSeconds": business.get("max_call_duration_minutes", 10) * 60,
+            "serverMessages": ["transcript", "hang", "end-of-call-report"],
+            "endCallFunctionEnabled": True,
+        }
+    }
+
+##check sthis again
+async def handle_transcript(payload: dict) -> dict:
+    """Handle transcript events for live streaming to Slack."""
+    call_id = payload.get("call", {}).get("id") or payload.get("message", {}).get("call", {}).get("id")
+    message = payload.get("message", {})
+    text = (
+        message.get("transcript")
+        or message.get("text")
+        or message.get("content")
+        or payload.get("transcript")
+        or ""
+    )
+    role = message.get("role") or message.get("speaker") or "assistant"
+
+    if not text:
+        return {"status": "no_text"}
+
+    call_log = await json_storage.get_call_log_by_vapi_id(call_id)
+    if not call_log:
+        return {"status": "call_log_not_found"}
+
+    current = call_log.get("transcript", "") or ""
+    call_log["transcript"] = f"{current}\n{role.capitalize()}: {text}".strip()
+    await json_storage.update_call_log(call_log["id"], call_log)
+
+    # Stream transcript to Slack thread in real-time
+    if call_log.get("slack_live_thread_ts") and call_log.get("business_id"):
+        try:
+            business = await json_storage.get_business(call_log["business_id"])
+            if business and business.get("nango_connection_id") and business.get("slack_live_channel"):
+                transcript_line = f"{role.capitalize()}: {text}"
+                await nango_client.proxy_request(
+                    connection_id=str(business.get("nango_connection_id")),
+                    method="POST",
+                    endpoint="chat.postMessage",
+                    data={
+                        "channel": business.get("slack_live_channel"),
+                        "thread_ts": call_log.get("slack_live_thread_ts"),
+                        "text": transcript_line,
+                    },
+                )
+        except Exception as e:
+            print(f"Slack transcript streaming failed (non-fatal): {e}")
+
+    return {"status": "processed"}
+
+
+async def handle_end_of_call_report(payload: dict) -> dict:
+    """Handle end-of-call-report: generate summary and post to Slack."""
+    call_data = payload.get("call", {})
+    vapi_call_id = call_data.get("id")
+    duration = call_data.get("durationSeconds", 0)
+    transcript = call_data.get("transcript", "")
+    ended_reason = call_data.get("endedReason", "")
+
+    call_log = await json_storage.get_call_log_by_vapi_id(vapi_call_id)
+    if not call_log:
+        return {"status": "call_log_not_found"}
+
+    if "transferred" in ended_reason:
+        outcome = "transferred"
+    elif "customer-ended-call" in ended_reason:
+        outcome = "resolved"
+    else:
+        outcome = "abandoned"
+
+    # Use VAPI transcript if available, otherwise fall back to accumulated transcript
+    final_transcript = transcript or call_log.get("transcript", "")
+    
+    # Clean up transcript: remove timestamp-only lines and normalize
+    if final_transcript:
+        lines = final_transcript.split("\n")
+        cleaned_lines = []
+        for line in lines:
+            stripped = line.strip()
+            # Skip empty lines and timestamp-only lines (e.g., "13:22", "1:22:15 PM(+00:01.66)")
+            if stripped and not (len(stripped) < 6 and stripped.replace(":", "").replace(".", "").isdigit()):
+                # Also skip lines that are just "Customer ended the call" metadata
+                if "ended the call" not in stripped.lower():
+                    cleaned_lines.append(stripped)
+        final_transcript = "\n".join(cleaned_lines).strip()
+    
+    summary = groq_service.summarize_transcript(
+        final_transcript, call_log.get("call_type", "inbound")
+    )
+    credits_used = max(1, duration // 6)
+
+    call_log["duration_seconds"] = duration
+    call_log["outcome"] = outcome
+    call_log["transcript"] = final_transcript
+    call_log["summary"] = summary
+    call_log["credits_used"] = credits_used
+    await json_storage.update_call_log(call_log["id"], call_log)
+
+    business = await json_storage.get_business(call_log["business_id"])
+    if business and business.get("nango_connection_id") and business.get("slack_summary_channel"):
+        transcript_lines = final_transcript.split("\n")[:3]
+        preview = "\n".join(transcript_lines)
+        asyncio.create_task(
+            slack_service.send_post_call_summary(
+                connection_id=str(business.get("nango_connection_id")),
+                channel=str(business.get("slack_summary_channel")),
+                call_type=call_log.get("call_type", "inbound"),
+                customer_phone=call_log.get("customer_phone", ""),
+                customer_name=call_log.get("customer_name"),
+                duration_seconds=duration,
+                outcome=outcome,
+                summary=summary,
+                transcript_preview=preview,
+                credits_used=credits_used,
+                vapi_call_id=vapi_call_id,
+                call_log_id=str(call_log["id"]),
+            )
+        )
+
+    return {"status": "summary_sent"}
+
+
+# ── Helper: send background message to active VAPI call ─────────────────
+async def _send_background_message(customer_call_id: str, message: str):
+    """Inject a system message into an active customer call."""
+    try:
+        # Get call details to find controlUrl
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"https://api.vapi.ai/call/{customer_call_id}",
+                headers={"Authorization": f"Bearer {settings.VAPI_API_KEY}"},
+            )
+            resp.raise_for_status()
+            call_data = resp.json()
+
+        control_url = call_data.get("monitor", {}).get("controlUrl")
+        if not control_url:
+            print(f"No controlUrl for call {customer_call_id}")
+            return
+
+        payload = {
+            "type": "add-message",
+            "message": {"role": "system", "content": message},
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                control_url,
+                headers={"Authorization": f"Bearer {settings.VAPI_API_KEY}"},
+                json=payload,
+            )
+            print(f"Background message response: {resp.status_code}")
+    except Exception as e:
+        print(f"Failed to send background message: {e}")
+
+
+# ── Helper: transfer customer call ───────────────────────────────────────
+async def _transfer_customer_call(customer_call_id: str, sip_uri: str):
+    """Transfer customer call to owner via SIP."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"https://api.vapi.ai/call/{customer_call_id}",
+                headers={"Authorization": f"Bearer {settings.VAPI_API_KEY}"},
+            )
+            resp.raise_for_status()
+            call_data = resp.json()
+
+        control_url = call_data.get("monitor", {}).get("controlUrl")
+        if not control_url:
+            print(f"No controlUrl for call {customer_call_id}")
+            return
+
+        payload = {
+            "type": "transfer",
+            "destination": {"type": "sip", "sipUri": sip_uri},
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                control_url,
+                headers={"Authorization": f"Bearer {settings.VAPI_API_KEY}"},
+                json=payload,
+            )
+            print(f"Transfer response: {resp.status_code} {resp.text}")
+    except Exception as e:
+        print(f"Failed to transfer call: {e}")
+
+
+# ── Helper: command customer call based on owner decision ───────────────
+async def _command_customer_call(customer_call_id: str, decision: str, business: dict):
+    """Tell Ananya what to do based on owner's yes/no decision."""
+    sip_uri = f"sip:{business.get('fallback_number', '')}@{settings.VOBIZ_SIP_DOMAIN}"
+
+    if decision == "yes":
+        # Step 1: Tell Ananya to say the handoff line
+        await _send_background_message(
+            customer_call_id,
+            "The owner is available. Say exactly: 'Great news! The owner is ready to speak with you. Connecting you now, please hold.' Then stop speaking.",
+        )
+
+        # Step 2: Small delay to let Ananya finish speaking
+        await asyncio.sleep(4)
+
+        # Step 3: Execute the transfer
+        await _transfer_customer_call(customer_call_id, sip_uri)
+
+    elif decision == "no":
+        business_name = business.get("display_name", "the business")
+        await _send_background_message(
+            customer_call_id,
+            f"The owner is currently unavailable. Say: 'I'm sorry, our team at {business_name} is a little occupied at the moment. They will call you back shortly. Thank you so much!' Then call end_call_tool.",
+        )
+
+
+@router.post("/notify-owner")
+async def notify_owner(request: Request):
+    """
+    Called by Ananya's notify_owner tool when she detects escalation.
+    
+    DUAL-AGENT FLOW:
+    1. Fires Owner PA VAPI call to owner's phone (PRIMARY)
+    2. Also sends Slack notification with approve/decline buttons (SECONDARY)
+    
+    Owner PA assistant talks to owner → owner says yes/no → Owner PA calls
+    report_decision → hits /owner-decision → commands Ananya to transfer/decline.
+    """
+    payload = await request.json()
+
+    # Extract tool call data from VAPI payload
+    tool_call_list = payload.get("message", {}).get("toolCallList", [])
+    tool_call_id = tool_call_list[0].get("id") if tool_call_list else None
+    arguments = (
+        tool_call_list[0].get("function", {}).get("arguments", {})
+        if tool_call_list
+        else {}
+    )
+
+    customer_name = arguments.get("customer_name", "the customer")
+    call_summary = arguments.get("call_summary", "")
+    lead_reason = arguments.get("lead_reason", "")
+    customer_call_id = payload.get("message", {}).get("call", {}).get("id")
+
+    if not customer_call_id:
+        return {
+            "results": [
+                {
+                    "toolCallId": tool_call_id,
+                    "result": "Error: Could not identify the call.",
+                }
+            ]
+        }
+
+    # Get call session and business context
+    call_log = await json_storage.get_call_log_by_vapi_id(customer_call_id)
+    if not call_log:
+        return {
+            "results": [
+                {
+                    "toolCallId": tool_call_id,
+                    "result": "Owner has been notified. Please hold while we check availability.",
+                }
+            ]
+        }
+
+    business = await json_storage.get_business(call_log.get("business_id", ""))
+    if not business:
+        return {
+            "results": [
+                {
+                    "toolCallId": tool_call_id,
+                    "result": "Owner has been notified. Please hold while we check availability.",
+                }
+            ]
+        }
+
+    owner_phone = business.get("fallback_number", "")
+    owner_name = business.get("display_name", "the owner")
+    business_name = business.get("display_name", "")
+    customer_phone = call_log.get("customer_phone", "")
+    reason = (
+        f"{customer_name} wants to {call_summary}"
+        if call_summary
+        else lead_reason or "Customer requested to speak with the owner."
+    )
+
+    # ── PRIMARY: Fire Owner PA VAPI call to owner's phone ──────────────
+    pa_system_prompt = f"""[Identity]
+You are a professional, efficient AI assistant representing {business_name}.
+Your role is to inform the owner about a qualified lead and get their availability decision quickly.
+
+[Style]
+- Concise, clear, and professional.
+- No small talk. Stay focused.
+- Sound human — use brief natural pauses.
+
+[Customer Context]
+Customer Name: {customer_name}
+What they want: {call_summary}
+Quality indicator: {lead_reason}
+
+[Task]
+1. Say: "Hello {owner_name}, this is {business_name}'s assistant calling to inform you of a lead. I have a qualified customer on the line."
+2. Brief the owner: "{customer_name} wants to {call_summary}."
+3. Ask: "Are you available to speak with them right now?"
+4. Wait for response.
+5. If YES: Say "Perfect, connecting you now." → call report_decision with decision="yes" → end call.
+6. If NO: Say "No problem, I will let them know. Thank you!" → call report_decision with decision="no" → end call.
+7. If no clear answer: ask once more. If still unclear → assume "no" → call report_decision with decision="no" → end call.
+
+[Critical Rule]
+Always call report_decision before ending.
+Decision must be "yes" or "no" only. Nothing else."""
+
+    pa_first_message = (
+        f"Hello {owner_name}, am I speaking to the owner of {business_name}?"
+    )
+
+    owner_assistant_id = settings.VAPI_OWNER_ASSISTANT_ID
+    if not owner_assistant_id:
+        print("WARNING: VAPI_OWNER_ASSISTANT_ID not set — skipping Owner PA call")
+    else:
+        resp = None
+        try:
+            # Fire Owner PA call via VAPI API
+            # VAPI requires systemPrompt to be inside model.messages, not as a top-level override
+            owner_payload = {
+                "assistantId": owner_assistant_id,
+                "phoneNumberId": settings.VAPI_PHONE_NUMBER_ID,
+                "customer": {
+                    "number": owner_phone,
+                    "name": f"{owner_name} (Owner)",
+                },
+                "assistantOverrides": {
+                    "firstMessage": pa_first_message,
+                    "model": {
+                        "provider": "openai",
+                        "model": "gpt-4o-mini",
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": pa_system_prompt
+                            }
+                        ]
+                    }
+                },
+            }
+            print(f"📞 DEBUG: Attempting Owner Call with ID: {owner_assistant_id}")
+            print(f"📞 DEBUG: Payload: {owner_payload}")
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://api.vapi.ai/call",
+                    headers={
+                        "Authorization": f"Bearer {settings.VAPI_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json=owner_payload,
+                )
+                resp.raise_for_status()
+                owner_call_data = resp.json()
+                owner_call_id = owner_call_data.get("id")
+
+                if owner_call_id:
+                    owner_to_customer[owner_call_id] = customer_call_id
+                    if customer_call_id in call_sessions:
+                        call_sessions[customer_call_id]["owner_call_triggered"] = True
+                        call_sessions[customer_call_id]["owner_call_id"] = owner_call_id
+                        # Store control_url for later transfer
+                        call_sessions[customer_call_id]["control_url"] = owner_call_data.get("monitor", {}).get("controlUrl")
+
+                    print(f"Owner PA call triggered: {owner_call_id} → customer: {customer_call_id}")
+        except Exception as e:
+            print(f"Owner PA call failed: {e}")
+            print(f"📞 DEBUG: Response Text: {getattr(resp, 'text', '<no response>')}")
+
+    # ── SECONDARY: Send Slack notification with approve/decline buttons ─
+    if business.get("nango_connection_id") and business.get("slack_live_channel"):
+        try:
+            await slack_service.send_owner_approval_request(
+                connection_id=str(business.get("nango_connection_id")),
+                channel=str(business.get("slack_live_channel")),
+                customer_name=customer_name,
+                customer_phone=customer_phone,
+                reason=reason,
+                call_id=customer_call_id,
+                business_name=business_name,
+            )
+        except Exception as e:
+            print(f"Owner approval Slack notification failed: {e}")
+
+    return {
+        "results": [
+            {
+                "toolCallId": tool_call_id,
+                "result": "Owner has been notified. Please hold while we check availability.",
+            }
+        ]
+    }
+
+
+@router.post("/owner-decision")
+async def owner_decision(request: Request):
+    """
+    Called by Owner PA's report_decision tool.
+    Receives owner's yes/no decision.
+    Commands Ananya to transfer or decline via background message injection.
+    """
+    payload = await request.json()
+
+    tool_call_list = payload.get("message", {}).get("toolCallList", [])
+    tool_call_id = tool_call_list[0].get("id") if tool_call_list else None
+    arguments = (
+        tool_call_list[0].get("function", {}).get("arguments", {})
+        if tool_call_list
+        else {}
+    )
+
+    decision = arguments.get("decision", "").lower()
+    owner_call_id = payload.get("message", {}).get("call", {}).get("id")
+
+    print(f"Owner decision received: {decision} for owner_call: {owner_call_id}")
+
+    customer_call_id = owner_to_customer.get(owner_call_id)
+    if customer_call_id:
+        # Get business context
+        call_log = await json_storage.get_call_log_by_vapi_id(customer_call_id)
+        if call_log:
+            business = await json_storage.get_business(call_log.get("business_id", ""))
+            if business:
+                await _command_customer_call(customer_call_id, decision, business)
+    else:
+        print(f"No customer call found for owner call: {owner_call_id}")
+
+    messages = {
+        "yes": "Transfer initiated. Customer is being connected to the owner now.",
+        "no": "Noted. Customer has been informed the team will call back shortly.",
+    }
+
+    return {
+        "results": [
+            {
+                "toolCallId": tool_call_id,
+                "result": messages.get(decision, "Decision recorded."),
+            }
+        ]
+    }
+
+----------------------------------------
+
+============================================
+FOLDER: app/schemas/
+============================================
+
+----------------------------------------
+FILE: app/schemas/__init__.py
+----------------------------------------
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/schemas/business.py
+----------------------------------------
+"""Pydantic schemas for business model."""
+
+import uuid
+from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class BusinessBase(BaseModel):
+    phone_number: str = Field(..., max_length=20)
+    display_name: str = Field(..., max_length=255)
+    city: Optional[str] = None
+    hours: Optional[str] = None
+    services: Optional[str] = None
+    fallback_number: str = Field(..., max_length=20)
+
+    # Slack
+    nango_connection_id: Optional[uuid.UUID] = None
+    slack_workspace: Optional[str] = None
+    slack_live_channel: Optional[str] = None
+    slack_summary_channel: Optional[str] = None
+
+    # Voice
+    voice_id: str = "pMsXgVXv3BLzUgSXRplE"
+
+    # Outbound
+    outbound_welcome_template: Optional[str] = None
+    callback_trigger_phrase: str = "Would you like us to call you back?"
+    max_call_duration_minutes: int = 10
+    enable_voice_callbacks: bool = True
+    inject_chat_context: bool = True
+    post_call_summary_to_chat: bool = False
+
+    # Inbound
+    inbound_welcome_template: Optional[str] = None
+    enable_inbound_call_handling: bool = True
+
+    # Shared behavior
+    human_transfer_on_escalation: bool = True
+    check_with_owner_before_transfer: bool = True
+    owner_check_method: str = "slack"
+    owner_check_timeout_seconds: int = 30
+    intent_based_transfer_detection: bool = True
+    owner_initiated_handover: bool = True
+    live_transcript_to_slack: bool = True
+    whisper_coaching_via_slack: bool = True
+    call_recording_enabled: bool = True
+
+
+class BusinessCreate(BusinessBase):
+    pass
+
+
+class BusinessUpdate(BusinessBase):
+    phone_number: Optional[str] = Field(None, max_length=20)
+    display_name: Optional[str] = Field(None, max_length=255)
+    fallback_number: Optional[str] = Field(None, max_length=20)
+    city: Optional[str] = None
+    hours: Optional[str] = None
+    services: Optional[str] = None
+
+    # Slack
+    nango_connection_id: Optional[uuid.UUID] = None
+    slack_workspace: Optional[str] = None
+    slack_live_channel: Optional[str] = None
+    slack_summary_channel: Optional[str] = None
+
+    # Voice
+    voice_id: Optional[str] = None
+
+    # Outbound
+    outbound_welcome_template: Optional[str] = None
+    callback_trigger_phrase: Optional[str] = None
+    max_call_duration_minutes: Optional[int] = None
+    enable_voice_callbacks: Optional[bool] = None
+    inject_chat_context: Optional[bool] = None
+    post_call_summary_to_chat: Optional[bool] = None
+
+    # Inbound
+    inbound_welcome_template: Optional[str] = None
+    enable_inbound_call_handling: Optional[bool] = None
+
+    # Shared behavior
+    human_transfer_on_escalation: Optional[bool] = None
+    check_with_owner_before_transfer: Optional[bool] = None
+    owner_check_method: Optional[str] = None
+    owner_check_timeout_seconds: Optional[int] = None
+    intent_based_transfer_detection: Optional[bool] = None
+    owner_initiated_handover: Optional[bool] = None
+    live_transcript_to_slack: Optional[bool] = None
+    whisper_coaching_via_slack: Optional[bool] = None
+    call_recording_enabled: Optional[bool] = None
+
+
+class BusinessResponse(BusinessBase):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/schemas/call.py
+----------------------------------------
+"""Pydantic schemas for call-related requests/responses."""
+
+import uuid
+from typing import Optional
+
+from pydantic import BaseModel
+
+
+class OutboundCallbackRequest(BaseModel):
+    business_id: uuid.UUID
+    customer_name: str
+    customer_phone: str
+    chat_summary: str
+    chat_history: Optional[list] = None
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/schemas/webhook.py
+----------------------------------------
+"""Pydantic schemas for webhook payloads."""
+
+from pydantic import BaseModel
+
+
+class PromptUpdate(BaseModel):
+    prompt: str
+
+----------------------------------------
+
+============================================
+FOLDER: app/services/
+============================================
+
+----------------------------------------
+FILE: app/services/__init__.py
+----------------------------------------
+"""Services package."""
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/services/call_orchestrator.py
+----------------------------------------
+"""High-level call flow orchestration."""
+
+from typing import Optional
+
+from app.core.config import settings
+from app.core import json_storage
+from app.services.prompt_builder import prompt_builder
+from app.services.vapi_service import vapi_client
+
+
+async def trigger_outbound_callback(
+    business: dict,
+    customer_name: str,
+    customer_phone: str,
+    chat_summary: str,
+    chat_history: Optional[list] = None,
+) -> dict:
+    """Initiate an outbound callback flow (O-1 or O-2)."""
+    # Get shared prompt template
+    templates = await json_storage.list_prompt_templates()
+    shared_prompt = "You are a helpful assistant."
+    if templates and len(templates) > 0:
+        template = templates[0]
+        if isinstance(template, dict):
+            shared_prompt = template.get("shared_system_prompt", shared_prompt)
+        elif hasattr(template, "shared_system_prompt"):
+            shared_prompt = template.shared_system_prompt
+
+    # Build system prompt
+    business_dict = {
+        "display_name": business.get("display_name"),
+        "city": business.get("city"),
+        "hours": business.get("hours"),
+        "services": business.get("services"),
+        "fallback_number": business.get("fallback_number"),
+    }
+
+    # Provide runtime variables (customer name / chat summary) to server-side rendering
+    extra_vars = {
+        "customerName": customer_name,
+        "customer_name": customer_name,
+        "chatSummary": chat_summary,
+        "chat_summary": chat_summary,
+    }
+
+    system_prompt = prompt_builder.build_system_prompt(
+        shared_prompt, business_dict, is_outbound=True, extra_vars=extra_vars
+    )
+
+    # Append chat history if enabled
+    if business.get("inject_chat_context") and chat_history:
+        formatted = "\n".join([f"{m['role']}: {m['content']}" for m in chat_history])
+        system_prompt += f"\n\nCHAT HISTORY:\n{formatted}"
+
+    # Build welcome message
+    welcome_vars = {
+        "customer_name": customer_name,
+        "business_name": business.get("display_name"),
+        "chat_summary": chat_summary,
+    }
+    first_message = prompt_builder.render(
+        business.get("outbound_welcome_template")
+        or "Hi {customer_name}, this is Ananya from {business_name}! How can I help?",
+        welcome_vars,
+    )
+
+    # Build assistant config
+    # Provide variableValues in multiple common key formats so dashboard assistants
+    # (which may expect camelCase) and server-side renderers (which expect
+    # snake_case or specific keys) both receive the data. This prevents gaps
+    # where the assistant doesn't know the customer's name or business fields
+    # and asks the caller to repeat information.
+    assistant_config = {
+        "firstMessage": first_message,
+        "variableValues": {
+            # snake_case (used by some templates / server-side builders)
+            "display_name": business.get("display_name"),
+            "city": business.get("city"),
+            "hours": business.get("hours"),
+            "services": business.get("services"),
+            "fallback_number": business.get("fallback_number"),
+
+            # camelCase / human-friendly names (commonly used in VAPI dashboard)
+            "businessName": business.get("display_name"),
+            "cityName": business.get("city"),
+            "fallbackNumber": business.get("fallback_number"),
+
+            # customer identifiers (provide both variants)
+            "customer_name": customer_name,
+            "customerName": customer_name,
+
+            # chat summary / context
+            "chat_summary": chat_summary,
+            "chatSummary": chat_summary,
+        },
+    }
+
+    # Use VAPI dashboard assistant for model/voice; backend supplies prompt + variables.
+    if settings.VAPI_OUTBOUND_ASSISTANT_ID:
+        vapi_result = await vapi_client.create_call_from_assistant_id(
+            assistant_id=settings.VAPI_OUTBOUND_ASSISTANT_ID,
+            customer_number=customer_phone,
+            customer_name=customer_name,
+            assistant_overrides=assistant_config,
+        )
+    else:
+        # Fallback only if dashboard assistant ID is not configured.
+        assistant_config.update(
+            {
+                "model": {
+                    "provider": "openai",
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "system", "content": system_prompt}],
+                },
+                "voice": {
+                    "provider": "11labs",
+                    "voiceId": business.get("voice_id", "pMsXgVXv3BLzUgSXRplE"),
+                },
+                "maxDurationSeconds": business.get("max_call_duration_minutes", 10) * 60,
+                "serverMessages": ["transcript", "hang", "end-of-call-report"],
+                "endCallFunctionEnabled": True,
+            }
+        )
+        vapi_result = await vapi_client.create_call(
+            assistant_config=assistant_config,
+            customer_number=customer_phone,
+            customer_name=customer_name,
+        )
+
+    # Create call log for analytics, whisper, transcript, post-call summary
+    vapi_call_id = vapi_result.get("id")
+    if vapi_call_id:
+        from app.services.slack_service import slack_service
+
+        call_log = await json_storage.create_call_log({
+            "business_id": business.get("id"),
+            "call_type": "outbound",
+            "vapi_call_id": vapi_call_id,
+            "customer_phone": customer_phone,
+            "customer_name": customer_name,
+        })
+
+        # Fire Slack live-call notification for outbound (enables owner whisper/takeover)
+        if business.get("nango_connection_id") and business.get("slack_live_channel"):
+            try:
+                slack_result = await slack_service.send_live_call_notification(
+                    connection_id=str(business.get("nango_connection_id")),
+                    channel=str(business.get("slack_live_channel")),
+                    call_type="outbound",
+                    call_log_id=str(call_log.get("id")),
+                    vapi_call_id=vapi_call_id,
+                    business_name=str(business.get("display_name")),
+                    customer_phone=customer_phone,
+                    customer_name=customer_name,
+                )
+                thread_ts = slack_result.get("ts") if isinstance(slack_result, dict) else None
+                if thread_ts:
+                    call_log["slack_live_thread_ts"] = thread_ts
+                    await json_storage.update_call_log(call_log["id"], call_log)
+            except Exception as e:
+                print(f"Outbound Slack notification failed (non-fatal): {e}")
+
+    return vapi_result
+
+
+async def handle_owner_check_result(
+    customer_call_id: str,
+    decision: str,
+    business_fallback_number: str,
+):
+    """Handle owner's decision after verification."""
+    if decision == "yes":
+        # Transfer to owner
+        destination = {
+            "type": "sip",
+            "sipUri": f"sip:{business_fallback_number}@{settings.VOBIZ_SIP_DOMAIN}",
+        }
+        await vapi_client.transfer_call(customer_call_id, destination)
+    else:
+        # Owner declined — send message to continue
+        await vapi_client.send_message(
+            customer_call_id,
+            {
+                "role": "system",
+                "content": "The owner is currently unavailable. Say: 'I'm sorry, our team is busy right now. Can I help you with anything else, or would you like me to take a message?'",
+            },
+        )
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/services/groq_service.py
+----------------------------------------
+"""Groq API client for transcript summarization."""
+
+from groq import Groq
+
+from app.core.config import settings
+
+
+class GroqService:
+    def __init__(self):
+        self.client = Groq(api_key=settings.GROQ_API_KEY)
+
+    def summarize_transcript(self, transcript: str, call_type: str = "inbound") -> str:
+        """Generate a concise summary of the call transcript."""
+        # Handle empty or too-short transcripts
+        if not transcript or len(transcript.strip()) < 10:
+            return "Call completed. No substantial conversation to summarize."
+
+        # Truncate very long transcripts to avoid token limits
+        truncated = transcript[:3000] if len(transcript) > 3000 else transcript
+
+        prompt = f"""Summarize this {call_type} call transcript in 2-3 sentences.
+Include: what the customer needed, what was resolved, and any follow-up actions.
+
+Transcript:
+{truncated}
+
+Summary:"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that summarizes voice call transcripts. Provide clear, concise summaries focusing on what the customer wanted and what was accomplished.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=150,
+            )
+            summary = response.choices[0].message.content or "No summary available."
+            return summary.strip()
+        except Exception as e:
+            print(f"ERROR in summarize_transcript: {e}")
+            return f"Summary generation failed. Transcript length: {len(transcript)} chars."
+
+    def summarize_chat_history(self, messages: list) -> str:
+        """Generate a concise summary of a chat conversation history."""
+        if not messages:
+            return "No conversation history available."
+
+        # Format chat history for the summarizer
+        formatted_history = "\n".join([
+            f"{msg.get('role', 'unknown').upper()}: {msg.get('content', '')}"
+            for msg in messages
+            if isinstance(msg, dict) and msg.get('content')
+        ])
+
+        if not formatted_history.strip():
+            return "No conversation content to summarize."
+
+        prompt = f"""Summarize this chat conversation in 1-2 concise sentences.
+Focus on: the customer's main request/need and any key information they shared.
+Keep it brief and factual.
+
+Chat History:
+{formatted_history}
+
+Summary:"""
+
+        response = self.client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that creates brief, accurate summaries of customer chat conversations.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=100,
+        )
+        return response.choices[0].message.content or "Chat summary unavailable."
+
+
+groq_service = GroqService()
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/services/nango_service.py
+----------------------------------------
+"""Nango API client for OAuth proxy operations."""
+
+from typing import Optional
+
+import httpx
+
+from app.core.config import settings
+
+
+class NangoService:
+    def __init__(self):
+        self.base_url = settings.NANGO_BASE_URL
+        self.secret_key = settings.NANGO_SECRET_KEY
+        self.headers = {
+            "Authorization": f"Bearer {self.secret_key}",
+            "Content-Type": "application/json",
+        }
+
+    async def create_session(self, end_user_id: str) -> dict:
+        """Create a Nango connect session for Slack OAuth."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/connect/sessions",
+                headers=self.headers,
+                json={
+                    "end_user": {"id": end_user_id},
+                    "allowed_integrations": ["slack"],
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def proxy_request(
+        self,
+        connection_id: str,
+        method: str,
+        endpoint: str,
+        data: Optional[dict] = None,
+    ) -> dict:
+        """Make a proxied request to Slack via Nango."""
+        url = f"{self.base_url}/proxy/{endpoint}"
+        headers = {
+            **self.headers,
+            "Connection-Id": connection_id,
+            "Provider-Config-Key": settings.NANGO_INTEGRATION_ID,
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            if method.upper() == "GET":
+                resp = await client.get(url, headers=headers)
+            elif method.upper() == "POST":
+                resp = await client.post(url, headers=headers, json=data)
+            else:
+                raise ValueError(f"Unsupported method: {method}")
+
+            resp.raise_for_status()
+            return resp.json()
+
+    async def get_connection(self, connection_id: str) -> dict:
+        """Fetch Nango connection details for a connection ID (may include tokens/credentials)."""
+        url = f"{self.base_url}/connections/{connection_id}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self.headers)
+            resp.raise_for_status()
+            return resp.json()
+
+    async def list_channels(self, connection_id: str) -> list:
+        """List Slack channels for a connected workspace."""
+        try:
+            result = await self.proxy_request(
+                connection_id=connection_id,
+                method="GET",
+                endpoint="conversations.list",
+            )
+        except httpx.HTTPStatusError as e:
+            detail = e.response.text if e.response is not None else str(e)
+            raise RuntimeError(f"Nango channels error: {detail}") from e
+        channels = result.get("channels", [])
+        return [c for c in channels if not c.get("is_archived", False)]
+
+
+nango_client = NangoService()
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/services/prompt_builder.py
+----------------------------------------
+"""Template rendering engine for system prompts and welcome messages."""
+
+
+class PromptBuilder:
+    def render(self, template: str, variables: dict) -> str:
+        """Replace {{variable}} and {variable} placeholders with values."""
+        result = template
+        for key, value in variables.items():
+            rendered_value = str(value or "")
+            double_placeholder = f"{{{{{key}}}}}"
+            single_placeholder = f"{{{key}}}"
+            result = result.replace(double_placeholder, rendered_value)
+            result = result.replace(single_placeholder, rendered_value)
+        return result
+
+    def build_system_prompt(
+        self,
+        shared_template: str,
+        business: dict,
+        is_outbound: bool = False,
+        extra_vars: dict | None = None,
+    ) -> str:
+        """Build the final system prompt for a call."""
+        variables = {
+            "agentName": "Ananya",
+            "businessName": business.get("display_name", ""),
+            "city": business.get("city", "Bengaluru"),
+            "hours": business.get("hours", "business hours"),
+            "services": business.get("services", "our services"),
+            "fallbackNumber": business.get("fallback_number", ""),
+            "chatContext": " (from chat context)" if is_outbound else "",
+        }
+
+        # Merge extra vars
+        if extra_vars:
+            for k, v in extra_vars.items():
+                variables[k] = v
+
+        # 1. Render the base template
+        rendered_prompt = self.render(shared_template, variables)
+
+        # 2. Append Context-Specific Instructions (CRITICAL FIX)
+        if is_outbound:
+            rendered_prompt += "\n\n[OUTBOUND CALLBACK CONTEXT]\n"
+            rendered_prompt += "- You are calling the customer BACK after they requested it in chat.\n"
+            rendered_prompt += "- You ALREADY know their name and issue from the chat history.\n"
+            rendered_prompt += "- Do NOT ask for their name again unless they don't answer.\n"
+            rendered_prompt += "- Start by referencing the previous chat briefly.\n"
+        else:
+            rendered_prompt += "\n\n[INBOUND CALL CONTEXT]\n"
+            rendered_prompt += "- You are ANSWERING an incoming phone call from a customer.\n"
+            rendered_prompt += "- The customer dialed your business number directly.\n"
+            rendered_prompt += "- Do NOT mention 'chat' or 'previous conversation' unless the customer brings it up.\n"
+            rendered_prompt += "- Start with your welcome message and ask how you can help.\n"
+
+        return rendered_prompt
+
+    def build_welcome_message(
+        self,
+        template: str,
+        variables: dict,
+    ) -> str:
+        """Build the first message for the assistant."""
+        return self.render(template, variables)
+
+
+prompt_builder = PromptBuilder()
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/services/slack_service.py
+----------------------------------------
+"""Slack notification builders and senders."""
+
+from typing import Optional
+
+from app.services.nango_service import nango_client
+
+
+class SlackService:
+    async def send_live_call_notification(
+        self,
+        connection_id: str,
+        channel: str,
+        call_type: str,
+        call_log_id: str,
+        vapi_call_id: str,
+        business_name: str,
+        customer_phone: str,
+        customer_name: Optional[str] = None,
+        agent_name: str = "Roo",
+        voice_name: str = "Priya",
+    ) -> dict:
+        """Send initial live call notification with Block Kit buttons."""
+        if call_type == "inbound":
+            header = "📥 Inbound Call — LIVE"
+            color = "#22c27a"
+        else:
+            header = "📤 Outbound Callback — LIVE"
+            color = "#5b5ef4"
+
+        customer_display = customer_name or customer_phone
+
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*{header}*  ·  🟢 *Active*  `0s`"},
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*CUSTOMER*\n{customer_display}"},
+                    {"type": "mrkdwn", "text": f"*BUSINESS*\n{business_name}"},
+                    {"type": "mrkdwn", "text": f"*PHONE*\n{customer_phone}"},
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*AI AGENT*\n{agent_name} ({voice_name})",
+                    },
+                ],
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*📝 LIVE TRANSCRIPT*\n_Waiting for first utterance..._",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🤫 Whisper to AI"},
+                        "action_id": "whisper",
+                        "value": vapi_call_id,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "📞 Take Over Call"},
+                        "action_id": "takeover",
+                        "value": vapi_call_id,
+                        "style": "primary",
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "✋ Transfer to Me"},
+                        "action_id": "transfer",
+                        "value": vapi_call_id,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🔇 End Call"},
+                        "action_id": "end_call",
+                        "value": vapi_call_id,
+                        "style": "danger",
+                    },
+                ],
+            },
+        ]
+
+        return await nango_client.proxy_request(
+            connection_id=connection_id,
+            method="POST",
+            endpoint="chat.postMessage",
+            data={
+                "channel": channel,
+                "blocks": blocks,
+                "attachments": [{"color": color}],
+            },
+        )
+
+    async def send_post_call_summary(
+        self,
+        connection_id: str,
+        channel: str,
+        call_type: str,
+        customer_phone: str,
+        customer_name: Optional[str],
+        duration_seconds: int,
+        outcome: str,
+        summary: str,
+        transcript_preview: str,
+        credits_used: int,
+        vapi_call_id: str,
+        call_log_id: str,
+    ) -> dict:
+        """Send post-call summary with Block Kit buttons."""
+        if call_type == "inbound":
+            header = "📥 Inbound Call Completed"
+            color = "#22c27a"
+        else:
+            header = "📤 Outbound Callback Completed"
+            color = "#5b5ef4"
+
+        outcome_badges = {
+            "resolved": "✅ AI Resolved",
+            "transferred": "🔀 Transferred to Owner",
+            "abandoned": "⚠️ Unresolved",
+            "timeout": "⏱️ Timeout",
+            "owner_declined": "❌ Owner Declined",
+        }
+        outcome_badge = outcome_badges.get(outcome, outcome)
+
+        duration_str = f"{duration_seconds // 60}m {duration_seconds % 60}s"
+        customer_display = customer_name or customer_phone
+
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*{header}*  ·  {outcome_badge}"},
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*CUSTOMER*\n{customer_display}"},
+                    {"type": "mrkdwn", "text": f"*PHONE*\n{customer_phone}"},
+                    {"type": "mrkdwn", "text": f"*DURATION*\n{duration_str}"},
+                    {"type": "mrkdwn", "text": f"*CREDITS USED*\n{credits_used} cr"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*🤖 AI SUMMARY*\n{summary}"},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*📝 TRANSCRIPT (excerpt)*\n{transcript_preview}",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "📄 Full Transcript"},
+                        "action_id": "view_transcript",
+                        "value": vapi_call_id,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "📞 Call Back"},
+                        "action_id": "callback",
+                        "value": customer_phone,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "✅ Mark Resolved"},
+                        "action_id": "mark_resolved",
+                        "value": call_log_id,
+                        "style": "primary",
+                    },
+                ],
+            },
+        ]
+
+        return await nango_client.proxy_request(
+            connection_id=connection_id,
+            method="POST",
+            endpoint="chat.postMessage",
+            data={
+                "channel": channel,
+                "blocks": blocks,
+                "attachments": [{"color": color}],
+            },
+        )
+
+    async def send_owner_approval_request(
+        self,
+        connection_id: str,
+        channel: str,
+        customer_name: str,
+        customer_phone: str,
+        reason: str,
+        call_id: str,
+        business_name: str,
+    ) -> dict:
+        """Send Slack message asking owner to approve transfer to them."""
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*📞 Transfer Request — {business_name}*"
+                },
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*CUSTOMER*\n{customer_name}"},
+                    {"type": "mrkdwn", "text": f"*PHONE*\n{customer_phone}"},
+                    {"type": "mrkdwn", "text": f"*REASON*\n{reason}"},
+                    {"type": "mrkdwn", "text": f"*CALL ID*\n`{call_id}`"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "*Do you want to take this call?*"
+            },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "✅ Yes, transfer to me"},
+                        "action_id": "approve_transfer",
+                        "style": "primary",
+                        "value": call_id,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "❌ No, stay on AI"},
+                        "action_id": "decline_transfer",
+                        "style": "danger",
+                        "value": call_id,
+                    },
+                ],
+            },
+        ]
+
+        return await nango_client.proxy_request(
+            connection_id=connection_id,
+            method="POST",
+            endpoint="chat.postMessage",
+            data={
+                "channel": channel,
+                "blocks": blocks,
+                "attachments": [{"color": "#f59e0b"}],
+            },
+        )
+
+
+slack_service = SlackService()
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/services/vapi_service.py
+----------------------------------------
+"""VAPI API client for creating calls, transfers, and sending messages."""
+
+from typing import Optional
+
+import httpx
+
+from app.core.config import settings
+
+
+class VAPIService:
+    def __init__(self):
+        self.base_url = "https://api.vapi.ai"
+        self.headers = {
+            "Authorization": f"Bearer {settings.VAPI_API_KEY}",
+            "Content-Type": "application/json",
+        }
+
+    async def create_call(
+        self,
+        assistant_config: dict,
+        customer_number: str,
+        customer_name: Optional[str] = None,
+        phone_number_id: Optional[str] = None,
+    ) -> dict:
+        """Create a new outbound call."""
+        payload = {
+            "assistant": assistant_config,
+            "phoneNumberId": phone_number_id or settings.VAPI_PHONE_NUMBER_ID,
+            "customer": {
+                "number": customer_number,
+                "name": customer_name or customer_number,
+            },
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/call",
+                headers=self.headers,
+                json=payload,
+            )
+            if resp.is_error:
+                raise RuntimeError(
+                    f"VAPI create_call failed ({resp.status_code}): {resp.text}"
+                )
+            return resp.json()
+
+    async def create_call_from_assistant_id(
+        self,
+        assistant_id: str,
+        customer_number: str,
+        customer_name: Optional[str] = None,
+        phone_number_id: Optional[str] = None,
+        assistant_overrides: Optional[dict] = None,
+    ) -> dict:
+        """Create a call using an existing VAPI assistant id."""
+        payload = {
+            "assistantId": assistant_id,
+            "phoneNumberId": phone_number_id or settings.VAPI_PHONE_NUMBER_ID,
+            "customer": {
+                "number": customer_number,
+                "name": customer_name or customer_number,
+            },
+        }
+        if assistant_overrides:
+            payload["assistantOverrides"] = assistant_overrides
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/call",
+                headers=self.headers,
+                json=payload,
+            )
+            if resp.is_error:
+                raise RuntimeError(
+                    f"VAPI create_call_from_assistant_id failed ({resp.status_code}): {resp.text}"
+                )
+            return resp.json()
+
+    async def get_call_status(self, call_id: str) -> str:
+        """Get current status of a call."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/call/{call_id}",
+                headers=self.headers,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("status", "unknown")
+
+    async def send_message(self, call_id: str, message: dict) -> dict:
+        """Send a system message to an active call."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Use monitor.controlUrl or direct API
+            # First get call details to find controlUrl
+            call_resp = await client.get(
+                f"{self.base_url}/call/{call_id}",
+                headers=self.headers,
+            )
+            call_resp.raise_for_status()
+            call_data = call_resp.json()
+
+            control_url = call_data.get("monitor", {}).get("controlUrl")
+            if not control_url:
+                raise ValueError("No controlUrl found for call")
+
+            payload = {
+                "type": "add-message",
+                "message": message,
+            }
+
+            resp = await client.post(
+                control_url,
+                headers=self.headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def transfer_call(self, call_id: str, destination: dict) -> dict:
+        """Transfer an active call to a new destination."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            call_resp = await client.get(
+                f"{self.base_url}/call/{call_id}",
+                headers=self.headers,
+            )
+            call_resp.raise_for_status()
+            call_data = call_resp.json()
+
+            control_url = call_data.get("monitor", {}).get("controlUrl")
+            if not control_url:
+                raise ValueError("No controlUrl found for call")
+
+            payload = {
+                "type": "transfer",
+                "destination": destination,
+            }
+
+            resp = await client.post(
+                control_url,
+                headers=self.headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def end_call(self, call_id: str) -> dict:
+        """End an active call."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/call/{call_id}/end",
+                headers=self.headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+
+vapi_client = VAPIService()
+
+----------------------------------------
+
+============================================
+FOLDER: app/utils/
+============================================
+
+----------------------------------------
+FILE: app/utils/__init__.py
+----------------------------------------
+"""Utility functions package."""
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/utils/formatting.py
+----------------------------------------
+"""Formatting utilities."""
+
+
+def format_duration(seconds: int) -> str:
+    """Convert seconds to mm:ss."""
+    m = seconds // 60
+    s = seconds % 60
+    return f"{m}m {s:02d}s"
+
+
+def truncate(text: str, max_len: int = 150) -> str:
+    """Truncate text to max length with ellipsis."""
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
+
+----------------------------------------
+
+----------------------------------------
+FILE: app/utils/validators.py
+----------------------------------------
+"""Validation helpers."""
+
+import re
+
+
+def validate_phone(phone: str) -> bool:
+    """Check if phone number is in E.164 format or 10-digit."""
+    pattern = r"^\+?[1-9]\d{1,14}$"
+    return bool(re.match(pattern, phone))
+
+
+def normalize_phone(phone: str) -> str:
+    """Strip non-digits and ensure +91 prefix."""
+    digits = "".join(filter(str.isdigit, phone))
+    if len(digits) == 10:
+        return f"+91{digits}"
+    return f"+{digits}" if digits else phone
+
+----------------------------------------
+
+=== END OF app/ DIRECTORY DUMP ===
