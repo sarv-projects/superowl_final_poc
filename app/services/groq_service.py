@@ -1,5 +1,6 @@
-"""Groq API client for transcript summarization."""
+"""Groq API client for transcript summarization and chat history."""
 
+import re
 from groq import Groq
 
 from app.core.config import settings
@@ -10,16 +11,25 @@ class GroqService:
         self.client = Groq(api_key=settings.GROQ_API_KEY)
 
     def summarize_transcript(self, transcript: str, call_type: str = "inbound") -> str:
-        """Generate a concise summary of the call transcript."""
-        # Handle empty or too-short transcripts
+        """Generate a high-quality, clean summary of the call transcript."""
         if not transcript or len(transcript.strip()) < 10:
             return "Call completed. No substantial conversation to summarize."
 
-        # Truncate very long transcripts to avoid token limits
-        truncated = transcript[:3000] if len(transcript) > 3000 else transcript
+        # === STRONG CLEANING ===
+        cleaned = re.sub(r'\d{2}:\d{2}:\d{2}\s*-\s*', '', transcript)
+        cleaned = re.sub(r'(Assistant|User|Customer|Caller|Roo|Priya):\s*', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
 
-        prompt = f"""Summarize this {call_type} call transcript in 2-3 sentences.
-Include: what the customer needed, what was resolved, and any follow-up actions.
+        # Safe truncation
+        truncated = cleaned[:4000] if len(cleaned) > 4000 else cleaned
+
+        prompt = f"""You are an expert call summarizer for {call_type} calls.
+
+Summarize the transcript in **maximum 3 short sentences** using this exact structure:
+
+- Customer wanted: [main request in one short phrase]
+- What happened: [key events + escalation if any]
+- Follow-up needed: [any action or note, or "None"]
 
 Transcript:
 {truncated}
@@ -32,18 +42,22 @@ Summary:"""
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a helpful assistant that summarizes voice call transcripts. Provide clear, concise summaries focusing on what the customer wanted and what was accomplished.",
+                        "content": "You are a precise, professional call summarizer. Never repeat the transcript. Always be concise, factual, and follow the exact structure requested.",
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.2,
-                max_tokens=150,
+                temperature=0.0,
+                max_tokens=220,
             )
-            summary = response.choices[0].message.content or "No summary available."
-            return summary.strip()
+            # Guard against None content from the API
+            content = getattr(response.choices[0].message, "content", None)
+            if not content or not isinstance(content, str):
+                return "Summary generation failed (empty response)."
+            summary = content.strip()
+            return summary
         except Exception as e:
             print(f"ERROR in summarize_transcript: {e}")
-            return f"Summary generation failed. Transcript length: {len(transcript)} chars."
+            return f"Summary generation failed ({len(transcript)} chars)."
 
     def summarize_chat_history(self, messages: list) -> str:
         """Generate a concise summary of a chat conversation history."""
@@ -81,7 +95,10 @@ Summary:"""
             temperature=0.2,
             max_tokens=100,
         )
-        return response.choices[0].message.content or "Chat summary unavailable."
+        content = getattr(response.choices[0].message, "content", None)
+        if content and isinstance(content, str) and content.strip():
+            return content.strip()
+        return "Chat summary unavailable."
 
 
 groq_service = GroqService()

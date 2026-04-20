@@ -48,12 +48,12 @@ uv run uvicorn main:app --reload --port 8000
 curl -X POST http://localhost:8000/playground/seed
 ```
 
-Returns: `{"status": "seeded", "business_id": "8ea5a5e8-...", "dashboard_url": "..."}`
+Returns: `{"status": "seeded", "business_id": "574dec5a-f908-4bd7-9ef8-c0db98aab790", "dashboard_url": "..."}`
 
 ## 6. Open dashboard
 
 ```
-http://localhost:8000/?business_id=8ea5a5e8-cce5-41dd-ad75-55f474d499f3
+http://localhost:8000/?business_id="574dec5a-f908-4bd7-9ef8-c0db98aab790"
 ```
 
 **That's the only link  needed.** This loads the configuration dashboard where you can:

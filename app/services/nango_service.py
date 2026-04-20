@@ -44,6 +44,8 @@ class NangoService:
             "Connection-Id": connection_id,
             "Provider-Config-Key": settings.NANGO_INTEGRATION_ID,
         }
+        if data and "channel" in data and isinstance(data["channel"], str):
+           data["channel"] = data["channel"].lstrip("#")
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             if method.upper() == "GET":

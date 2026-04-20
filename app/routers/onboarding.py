@@ -122,6 +122,16 @@ async def nango_webhook(request: Request):
     business["slack_workspace"] = "Connected"
     business["slack_workspace_name"] = "Connected"
     business["updated_at"] = datetime.utcnow().isoformat()
+    try:
+        channels = await nango_client.list_channels(connection_id=str(connection_id))
+        if channels:
+            # Pick the first channel (the one selected during OAuth popup)
+            selected = channels[0]["name"]  # no # prefix
+            business["slack_live_channel"] = selected
+            business["slack_summary_channel"] = selected
+            print(f"✅ Auto-set Slack channel: {selected}")
+    except Exception as e:
+        print(f"⚠️ Could not auto-fetch Slack channel: {e}")
 
     await json_storage.update_business(business["id"], business)
 
