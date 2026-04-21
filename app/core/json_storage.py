@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import asyncio
@@ -17,6 +17,11 @@ PROMPTS_FILE = DATA_DIR / "prompts.json"
 
 # In-memory lock for concurrent writes
 _write_lock = asyncio.Lock()
+
+
+def _utc_now_iso() -> str:
+    """Return timezone-aware UTC timestamp in ISO-8601 format."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _ensure_files():
@@ -81,7 +86,7 @@ async def create_business(business_data: Dict[str, Any]) -> Dict[str, Any]:
         
         business_id = str(uuid.uuid4())
         business_data["id"] = business_id
-        now = datetime.utcnow().isoformat()
+        now = _utc_now_iso()
         business_data["created_at"] = now
         business_data["updated_at"] = now
         
@@ -101,8 +106,8 @@ async def update_business(business_id: str, business_data: Dict[str, Any]) -> Op
         
         # Preserve ID and created_at
         business_data["id"] = business_id
-        business_data["created_at"] = businesses[business_id].get("created_at", datetime.utcnow().isoformat())
-        business_data["updated_at"] = datetime.utcnow().isoformat()
+        business_data["created_at"] = businesses[business_id].get("created_at", _utc_now_iso())
+        business_data["updated_at"] = _utc_now_iso()
         
         businesses[business_id] = business_data
         BUSINESSES_FILE.write_text(json.dumps(businesses, indent=2))
@@ -132,7 +137,7 @@ async def create_call_log(call_log_data: Dict[str, Any]) -> Dict[str, Any]:
         call_logs = json.loads(CALL_LOGS_FILE.read_text() or "[]")
         
         call_log_data["id"] = str(uuid.uuid4())
-        call_log_data["created_at"] = datetime.utcnow().isoformat()
+        call_log_data["created_at"] = _utc_now_iso()
         
         call_logs.append(call_log_data)
         CALL_LOGS_FILE.write_text(json.dumps(call_logs, indent=2))
@@ -166,7 +171,7 @@ async def update_call_log(call_log_id: str, call_log_data: Dict[str, Any]) -> Op
         for i, log in enumerate(call_logs):
             if log.get("id") == call_log_id:
                 call_log_data["id"] = call_log_id
-                call_log_data["created_at"] = log.get("created_at", datetime.utcnow().isoformat())
+                call_log_data["created_at"] = log.get("created_at", _utc_now_iso())
                 call_logs[i] = call_log_data
                 CALL_LOGS_FILE.write_text(json.dumps(call_logs, indent=2))
                 return call_log_data
@@ -201,7 +206,7 @@ async def create_prompt_template(prompt_data: Dict[str, Any]) -> Dict[str, Any]:
         
         prompt_id = str(uuid.uuid4())
         prompt_data["id"] = prompt_id
-        prompt_data["created_at"] = datetime.utcnow().isoformat()
+        prompt_data["created_at"] = _utc_now_iso()
         
         prompts[prompt_id] = prompt_data
         PROMPTS_FILE.write_text(json.dumps(prompts, indent=2))
@@ -230,7 +235,7 @@ async def update_prompt_template(prompt_id: str, prompt_data: Dict[str, Any]) ->
             return None
         
         prompt_data["id"] = prompt_id
-        prompt_data["created_at"] = prompts[prompt_id].get("created_at", datetime.utcnow().isoformat())
+        prompt_data["created_at"] = prompts[prompt_id].get("created_at", _utc_now_iso())
         prompts[prompt_id] = prompt_data
         PROMPTS_FILE.write_text(json.dumps(prompts, indent=2))
     

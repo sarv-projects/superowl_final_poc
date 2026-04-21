@@ -18,13 +18,17 @@ router = APIRouter()
 
 VOICE_PREVIEW_TEXT = "Hi, I am Ananya from SuperOwl. This is a quick voice preview for your business assistant."
 
-DEFAULT_SHARED_PROMPT = """You are {{agentName}}, a warm, friendly, and professional voice assistant for {{businessName}} in {{city}}.
+DEFAULT_SHARED_PROMPT = """You are {{agentName}}, a warm, friendly, and professional voice assistant for {{businessName}}.
+
+Business Knowledge Base:
+{{kb}}
 
 Speak naturally and calmly. Keep responses short, clear, and human. This is a live voice call, so avoid long explanations.
 
 Your goals:
 - Understand the caller's request from the conversation or chat context
-- Answer product, service, pricing, and booking questions clearly
+- Answer product, service, pricing, and booking questions clearly using the knowledge base above
+- You are NOT limited to only what's in the KB — use good judgment to help the caller
 - If the caller needs the owner or the issue is urgent, offer a transfer
 - Confirm the caller's name and callback number before ending the call
 
@@ -75,9 +79,7 @@ async def seed_demo_data():
     biz_data = {
         "phone_number": settings.BUSINESS_PHONE_NUMBER,
         "display_name": DEMO_BUSINESS_NAME,
-        "city": "Bengaluru",
-        "hours": "10 AM – 7 PM, Mon–Sat",
-        "services": "Wooden toys, birthday parties, creative play sessions, memory quilts",
+        "kb": "Location: Bengaluru\nHours: 10 AM – 7 PM, Mon–Sat\nServices: Wooden toys, birthday parties, creative play sessions, memory quilts",
         "fallback_number": _seed_fallback_number(),
         "voice_id": "pMsXgVXv3BLzUgSXRplE",
         "outbound_welcome_template": "Hi {customer_name}, this is Ananya calling from {business_name}! I was just speaking with you on our chat. How can I assist you today?",
@@ -183,9 +185,7 @@ async def playground_chat(req: ChatRequest):
 
     business_dict = {
         "display_name": str(business.get("display_name") or ""),
-        "city": str(business.get("city") or ""),
-        "hours": str(business.get("hours") or ""),
-        "services": str(business.get("services") or ""),
+        "kb": str(business.get("kb") or ""),
         "fallback_number": str(business.get("fallback_number") or ""),
     }
 

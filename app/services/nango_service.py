@@ -72,7 +72,7 @@ class NangoService:
             result = await self.proxy_request(
                 connection_id=connection_id,
                 method="GET",
-                endpoint="conversations.list",
+                endpoint="conversations.list?types=public_channel,private_channel&limit=200",
             )
         except httpx.HTTPStatusError as e:
             detail = e.response.text if e.response is not None else str(e)

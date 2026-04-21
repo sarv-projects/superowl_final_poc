@@ -146,8 +146,8 @@ class VAPIService:
     async def end_call(self, call_id: str) -> dict:
         """End an active call."""
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"{self.base_url}/call/{call_id}/end",
+            resp = await client.delete(
+                f"{self.base_url}/call/{call_id}",
                 headers=self.headers,
             )
             resp.raise_for_status()

@@ -1027,14 +1027,16 @@ async function loadConfig() {
     });
 
     // Slack
-    if(document.getElementById('live-channel')) document.getElementById('live-channel').value = biz.slack_live_channel || '';
-    if(document.getElementById('summary-channel')) document.getElementById('summary-channel').value = biz.slack_summary_channel || '';
+    const ch = biz.slack_channel || '';
+    if(document.getElementById('live-channel')) document.getElementById('live-channel').value = ch;
+    if(document.getElementById('summary-channel')) document.getElementById('summary-channel').value = ch;
 
+    // Only show connected if nango_connection_id AND channel are both set
     if (biz.nango_connection_id) {
-        showSlackConnected(biz.slack_workspace || 'Connected workspace');
-        if (biz.slack_workspace && biz.slack_workspace !== 'Slack') {
-            await loadSlackChannels(biz.phone_number);
-        }
+      showSlackConnected(biz.slack_workspace || 'Connected');
+      await loadSlackChannels(biz.phone_number);
+    } else {
+      disconnectSlack();
     }
 
     try {
@@ -1085,8 +1087,9 @@ async function saveConfiguration() {
             owner_initiated_handover: document.getElementById('owner-handover').checked,
             live_transcript_to_slack: document.getElementById('live-transcript').checked,
             whisper_coaching_via_slack: document.getElementById('whisper-coaching').checked,
-            slack_live_channel: document.getElementById('live-channel').value,
-            slack_summary_channel: document.getElementById('summary-channel').value,
+            slack_channel: document.getElementById('slack-channel-select')?.value
+              || document.getElementById('live-channel')?.value
+              || '',
         };
 
         const bizRes = await fetch(`${BASE_URL}/businesses/${currentBusinessId}`, {
@@ -1110,73 +1113,39 @@ async function saveConfiguration() {
 // ── Load Slack channels and populate dropdowns ─────────────────────────
 async function loadSlackChannels(phone) {
     if (!phone) return;
-
     try {
-        const channelsRes = await fetch(`${BASE_URL}/onboarding/slack/channels?phone=${encodeURIComponent(phone)}`);
-        if (!channelsRes.ok) return;
+        const listRes = await fetch(`${BASE_URL}/onboarding/slack/list-channels?phone=${encodeURIComponent(phone)}`);
+        if (!listRes.ok) return;
+        const listData = await listRes.json();
+        const channels = listData.channels || [];
+        if (!channels.length) return;
 
-        const channels = await channelsRes.json();
-        if (!channels || channels.length === 0) return;
+        const slackConfig = document.getElementById('slack-config');
+        if (slackConfig) slackConfig.style.display = 'block';
 
-        const liveChannelInput = document.getElementById('live-channel');
-        const summaryChannelInput = document.getElementById('summary-channel');
+        // Replace both text inputs with a single channel select
+        ['live-channel', 'summary-channel'].forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            // Remove existing select if already created
+            const existingSelect = document.getElementById(inputId + '-select');
+            if (existingSelect) existingSelect.remove();
 
-        const liveSelect = document.createElement('select');
-        liveSelect.id = 'live-channel-select';
-        liveSelect.style.cssText = 'width: 100%; padding: 9px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; background: white;';
-
-        const summarySelect = document.createElement('select');
-        summarySelect.id = 'summary-channel-select';
-        summarySelect.style.cssText = 'width: 100%; padding: 9px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; background: white;';
-
-        channels.forEach(channel => {
-            const liveOption = document.createElement('option');
-            liveOption.value = channel.id;
-            liveOption.textContent = `#${channel.name}`;
-
-            const summaryOption = document.createElement('option');
-            summaryOption.value = channel.id;
-            summaryOption.textContent = `#${channel.name}`;
-
-            if (liveChannelInput && channel.id === liveChannelInput.value) {
-                liveOption.selected = true;
-            }
-            if (summaryChannelInput && channel.id === summaryChannelInput.value) {
-                summaryOption.selected = true;
-            }
-
-            if (!liveOption.selected && (channel.name.includes('voice') || channel.name.includes('call'))) {
-                liveOption.selected = true;
-            }
-            if (!summaryOption.selected && (channel.name.includes('summary') || channel.name.includes('call'))) {
-                summaryOption.selected = true;
-            }
-
-            liveSelect.appendChild(liveOption);
-            summarySelect.appendChild(summaryOption);
+            const select = document.createElement('select');
+            select.id = inputId + '-select';
+            select.style.cssText = 'width:100%;padding:9px 13px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:white;';
+            channels.forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = '#' + name;
+                if (name === input.value || (!input.value && name === channels[0])) opt.selected = true;
+                select.appendChild(opt);
+            });
+            input.style.display = 'none';
+            input.value = select.value;
+            input.parentNode.insertBefore(select, input.nextSibling);
+            select.addEventListener('change', () => { input.value = select.value; });
         });
-
-        if (liveChannelInput) {
-            liveChannelInput.style.display = 'none';
-            liveChannelInput.parentNode.insertBefore(liveSelect, liveChannelInput.nextSibling);
-        }
-
-        if (summaryChannelInput) {
-            summaryChannelInput.style.display = 'none';
-            summaryChannelInput.parentNode.insertBefore(summarySelect, summaryChannelInput.nextSibling);
-        }
-
-        liveSelect.addEventListener('change', () => {
-            if (liveChannelInput) liveChannelInput.value = liveSelect.value;
-        });
-
-        summarySelect.addEventListener('change', () => {
-            if (summaryChannelInput) summaryChannelInput.value = summarySelect.value;
-        });
-
-        if (liveChannelInput) liveChannelInput.value = liveSelect.value;
-        if (summaryChannelInput) summaryChannelInput.value = summarySelect.value;
-
     } catch (err) {
         console.warn('Could not load Slack channels:', err);
     }
@@ -1185,48 +1154,44 @@ async function loadSlackChannels(phone) {
 // ── Slack connect ──────────────────────────────────────────────────────
 let slackConnectPhone = null;
 
-function connectSlack() {
-    const phoneInput = document.getElementById('biz-phone');
-    const phone = phoneInput ? phoneInput.value : prompt(`Enter your business phone number.`);
-    if (!phone) {
-        showToast('Please set business phone number first.', 'error');
-        return;
+async function connectSlack() {
+  const phone = document.getElementById('biz-phone').value;
+  if (!phone) {
+    showToast('Please set business phone number first.', 'error');
+    return;
+  }
+
+  slackConnectPhone = phone;
+
+  try {
+    const r = await fetch(`${BASE_URL}/onboarding/connect/session?phone=${encodeURIComponent(phone)}`);
+    const data = await r.json();
+    if (!r.ok) {
+      throw new Error(data.detail || `Server error (HTTP ${r.status})`);
     }
 
-    slackConnectPhone = phone;
+    if (data.connect_link) {
+      window.open(data.connect_link, '_blank');
+      showToast('🔗 Slack OAuth opened. Complete it in the popup, then click "Verify Connection".', 'success');
 
-    fetch(`${BASE_URL}/onboarding/connect/session?phone=${encodeURIComponent(phone)}`)
-        .then(async r => {
-            const data = await r.json();
-            if (!r.ok) {
-                throw new Error(data.detail || `Server error (HTTP ${r.status})`);
-            }
-            return data;
-        })
-        .then(data => {
-            if (data.connect_link) {
-                window.open(data.connect_link, '_blank');
-                showToast('🔗 Slack OAuth opened. Complete it in the popup, then click "Verify Connection".', 'success');
+      const connectBtn = document.getElementById('slack-connect-btn');
+      if (connectBtn) connectBtn.style.display = 'none';
 
-                const connectBtn = document.getElementById('slack-connect-btn');
-                if (connectBtn) connectBtn.style.display = 'none';
-
-                const statusEl = document.getElementById('slack-status');
-                if (statusEl) {
-                    statusEl.innerHTML = `
-                        <button class="btn btn-primary btn-sm" onclick="verifySlackConnection()">
-                            ✅ Verify Connection
-                        </button>
-                    `;
-                }
-            } else {
-                showToast('❌ No connect link returned', 'error');
-            }
-        })
-        .catch(err => {
-            console.error('Slack connect failed:', err);
-            showToast(`❌ ${err.message}`, 'error');
-        });
+      const statusEl = document.getElementById('slack-status');
+      if (statusEl) {
+        statusEl.innerHTML = `
+            <button class="btn btn-primary btn-sm" onclick="verifySlackConnection()">
+              ✅ Verify Connection
+            </button>
+          `;
+      }
+    } else {
+      showToast('❌ No connect link returned', 'error');
+    }
+  } catch (err) {
+    console.error('Slack connect failed:', err);
+    showToast(`❌ ${err.message}`, 'error');
+  }
 }
 
 async function verifySlackConnection() {

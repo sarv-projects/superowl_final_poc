@@ -31,6 +31,20 @@ STRIP_FIELDS = {
 }
 
 TOOL_IDENTITY_KEYS = ("name", "server", "description")
+WORKSPACE_ROOT = Path.cwd().resolve()
+
+
+def _safe_local_path(path_value: str, must_exist: bool = False) -> Path:
+    """Resolve a user-provided path and keep file access within the workspace."""
+    candidate = Path(path_value).expanduser().resolve(strict=False)
+    try:
+        candidate.relative_to(WORKSPACE_ROOT)
+    except ValueError as exc:
+        raise ValueError(f"Path is outside workspace: {path_value}") from exc
+
+    if must_exist and not candidate.exists():
+        raise FileNotFoundError(f"Path does not exist: {path_value}")
+    return candidate
 
 
 def parse_args() -> argparse.Namespace:
@@ -125,8 +139,9 @@ def export_account(api_key: str, output_file: str) -> None:
         "phone_numbers": [_strip_fields(x) for x in phone_numbers],
     }
 
-    Path(output_file).write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    print(f"Exported {len(tools)} tools, {len(assistants)} assistants, {len(phone_numbers)} phone numbers -> {output_file}")
+    output_path = _safe_local_path(output_file)
+    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(f"Exported {len(tools)} tools, {len(assistants)} assistants, {len(phone_numbers)} phone numbers -> {output_path}")
 
 
 def _rewrite_ngrok_urls(value: Any, ngrok_base: str) -> Any:
@@ -178,7 +193,7 @@ def _post_item(client: httpx.Client, paths: list[str], payload: dict[str, Any]) 
 
 
 def _patch_env_file(env_file: str, updates: dict[str, str]) -> None:
-    path = Path(env_file)
+    path = _safe_local_path(env_file)
     if not path.exists():
         return
 
@@ -205,7 +220,8 @@ def _patch_env_file(env_file: str, updates: dict[str, str]) -> None:
 
 
 def import_account(api_key: str, in_file: str, ngrok: str | None, skip_webhooks: bool, env_file: str) -> None:
-    data = json.loads(Path(in_file).read_text(encoding="utf-8"))
+    input_path = _safe_local_path(in_file, must_exist=True)
+    data = json.loads(input_path.read_text(encoding="utf-8"))
     tools = data.get("tools", [])
     assistants = data.get("assistants", [])
     phones = data.get("phone_numbers", [])

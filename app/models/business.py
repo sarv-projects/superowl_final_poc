@@ -9,16 +9,13 @@ class Business(BaseModel):
     id: Optional[str] = None
     phone_number: str
     display_name: str
-    city: Optional[str] = None
-    hours: Optional[str] = None
-    services: Optional[str] = None
+    kb: Optional[str] = None
     fallback_number: str
 
     # Slack integration
     nango_connection_id: Optional[str] = None
     slack_workspace: Optional[str] = None
-    slack_live_channel: Optional[str] = None
-    slack_summary_channel: Optional[str] = None
+    slack_channel: Optional[str] = None
 
     # Voice config (shared)
     voice_id: str = "pMsXgVXv3BLzUgSXRplE"

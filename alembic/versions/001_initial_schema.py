@@ -33,8 +33,7 @@ def upgrade() -> None:
         sa.Column("fallback_number", sa.String(20), nullable=False),
         sa.Column("nango_connection_id", UUID(as_uuid=True)),
         sa.Column("slack_workspace", sa.String(255)),
-        sa.Column("slack_live_channel", sa.String(50)),
-        sa.Column("slack_summary_channel", sa.String(50)),
+        sa.Column("slack_channel", sa.String(50)),
         sa.Column("voice_id", sa.String(100), server_default="pMsXgVXv3BLzUgSXRplE"),
         sa.Column("outbound_welcome_template", sa.Text()),
         sa.Column(

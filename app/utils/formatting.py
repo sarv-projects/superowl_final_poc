@@ -1,5 +1,7 @@
 """Formatting utilities."""
 
+import html
+
 
 def format_duration(seconds: int) -> str:
     """Convert seconds to mm:ss."""
@@ -10,6 +12,7 @@ def format_duration(seconds: int) -> str:
 
 def truncate(text: str, max_len: int = 150) -> str:
     """Truncate text to max length with ellipsis."""
-    if len(text) <= max_len:
-        return text
-    return text[: max_len - 3] + "..."
+    safe_text = html.escape(str(text), quote=True)
+    if len(safe_text) <= max_len:
+        return safe_text
+    return safe_text[: max_len - 3] + "..."

@@ -11,7 +11,7 @@ def validate_phone(phone: str) -> bool:
 
 def normalize_phone(phone: str) -> str:
     """Strip non-digits and ensure +91 prefix."""
-    digits = "".join(filter(str.isdigit, phone))
+    digits = "".join(filter(str.isdigit, str(phone or "")))
     if len(digits) == 10:
         return f"+91{digits}"
-    return f"+{digits}" if digits else phone
+    return f"+{digits}" if digits else ""

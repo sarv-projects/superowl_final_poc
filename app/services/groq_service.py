@@ -1,5 +1,6 @@
 """Groq API client for transcript summarization and chat history."""
 
+import html
 import re
 from groq import Groq
 
@@ -19,6 +20,7 @@ class GroqService:
         cleaned = re.sub(r'\d{2}:\d{2}:\d{2}\s*-\s*', '', transcript)
         cleaned = re.sub(r'(Assistant|User|Customer|Caller|Roo|Priya):\s*', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        cleaned = cleaned.replace("<", "").replace(">", "")
 
         # Safe truncation
         truncated = cleaned[:4000] if len(cleaned) > 4000 else cleaned
@@ -54,7 +56,7 @@ Summary:"""
             if not content or not isinstance(content, str):
                 return "Summary generation failed (empty response)."
             summary = content.strip()
-            return summary
+            return html.escape(summary, quote=True)
         except Exception as e:
             print(f"ERROR in summarize_transcript: {e}")
             return f"Summary generation failed ({len(transcript)} chars)."
@@ -74,26 +76,30 @@ Summary:"""
         if not formatted_history.strip():
             return "No conversation content to summarize."
 
-        prompt = f"""Summarize this chat conversation in 1-2 concise sentences.
-Focus on: the customer's main request/need and any key information they shared.
-Keep it brief and factual.
+        prompt = f"""Summarize the customer's main request in ONE short phrase, 5 words max.
+No full sentences. No punctuation. Just the core topic.
+
+Examples:
+- booking a birthday party
+- pricing for wooden toys
+- availability this weekend
 
 Chat History:
 {formatted_history}
 
-Summary:"""
+Short phrase:"""
 
         response = self.client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that creates brief, accurate summaries of customer chat conversations.",
+                    "content": "You extract the core customer request as a short phrase only.",
                 },
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
-            max_tokens=100,
+            max_tokens=30,
         )
         content = getattr(response.choices[0].message, "content", None)
         if content and isinstance(content, str) and content.strip():

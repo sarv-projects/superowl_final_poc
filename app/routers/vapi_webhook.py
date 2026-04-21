@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request
 
 from app.core import json_storage
 from app.core.config import settings
+from app.services.call_orchestrator import _build_ananya_tools, _build_owner_pa_tools
 from app.services.groq_service import groq_service
 from app.services.nango_service import nango_client
 from app.services.prompt_builder import prompt_builder
@@ -32,8 +33,8 @@ async def _get_shared_prompt() -> str:
         if templates:
             template = templates[0]
             return template.get("shared_system_prompt", "You are a helpful assistant.")
-    except Exception:
-        pass
+    except (TypeError, ValueError, KeyError) as exc:
+        print(f"Failed to load shared prompt template: {exc}")
     return "You are a helpful assistant."
 
 
@@ -49,6 +50,7 @@ def extract_ani_from_diversion(diversion: str) -> Optional[str]:
 async def vapi_webhook(request: Request):
     """Handle all VAPI call events."""
     payload = await request.json()
+    print("VAPI EVENT:", json.dumps(payload, indent=2))
     message = payload.get("message", {})
     event_type = message.get("type")
 
@@ -66,7 +68,7 @@ async def vapi_webhook(request: Request):
 
 async def handle_assistant_request(payload: dict) -> dict:
     """Handle VAPI assistant-request for inbound calls."""
-    call_data = payload.get("call", {})
+    call_data = payload.get("message", {}).get("call", {})
     phone_data = call_data.get("phoneNumber", {})
     from_number = phone_data.get("number")
     diversion = phone_data.get("diversion")
@@ -101,16 +103,14 @@ async def handle_assistant_request(payload: dict) -> dict:
     shared_prompt = await _get_shared_prompt()
     business_dict = {
         "display_name": business.get("display_name", ""),
-        "city": business.get("city", ""),
-        "hours": business.get("hours", ""),
-        "services": business.get("services", ""),
+        "kb": business.get("kb", ""),
         "fallback_number": business.get("fallback_number", ""),
     }
     system_prompt = prompt_builder.build_system_prompt(
         shared_prompt, business_dict, is_outbound=False #Triggers inbound logic.
     )
 
-    first_message = prompt_builder.render(
+    first_message = prompt_builder.render_welcome(
         business.get("inbound_welcome_template")
         or "Thank you for calling {{businessName}}! I'm Ananya, how can I help?",
         {"businessName": business.get("display_name", "")},
@@ -126,11 +126,11 @@ async def handle_assistant_request(payload: dict) -> dict:
         }
     )
 
-    if business.get("nango_connection_id") and business.get("slack_live_channel"):
+    if business.get("nango_connection_id") and business.get("slack_channel"):
         try:
             slack_result = await slack_service.send_live_call_notification(
                 connection_id=str(business.get("nango_connection_id")),
-                channel=str(business.get("slack_live_channel")),
+                channel=str(business.get("slack_channel")),
                 call_type="inbound",
                 call_log_id=str(call_log.get("id")),
                 vapi_call_id=vapi_call_id,
@@ -147,20 +147,13 @@ async def handle_assistant_request(payload: dict) -> dict:
     assistant_overrides = {
         "firstMessage": first_message,
         "variableValues": business_dict,
+        "model": {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "system", "content": system_prompt}],
+            "tools": _build_ananya_tools(business.get("fallback_number", "")),
+        },
     }
-
-    if business.get("human_transfer_on_escalation", False):
-        assistant_overrides["tools"] = [
-            {
-                "type": "transferCall",
-                "destinations": [
-                    {
-                        "type": "sip",
-                        "sipUri": f"sip:{business.get('fallback_number', '')}@{settings.VOBIZ_SIP_DOMAIN}",
-                    }
-                ],
-            }
-        ]
 
     # Track call session for dual-agent flow
     call_sessions[vapi_call_id] = {
@@ -172,21 +165,15 @@ async def handle_assistant_request(payload: dict) -> dict:
         "control_url": None,
     }
 
-    if settings.VAPI_INBOUND_ASSISTANT_ID:
-        # Inject the app's system prompt into the assistant overrides so it
-        # overrides the default prompt configured in the VAPI Dashboard.
-        assistant_overrides["systemPrompt"] = system_prompt
-        return {
-            "assistantId": settings.VAPI_INBOUND_ASSISTANT_ID,
-            "assistantOverrides": assistant_overrides,
-        }
-
+    # Always return full inline assistant — never use assistantId for inbound
+    # Using assistantId causes VAPI to merge/override our config with dashboard defaults
     return {
         "assistant": {
             "model": {
                 "provider": "openai",
                 "model": "gpt-4o-mini",
                 "messages": [{"role": "system", "content": system_prompt}],
+                "tools": _build_ananya_tools(business.get("fallback_number", "")),
             },
             "voice": {
                 "provider": "11labs",
@@ -197,13 +184,18 @@ async def handle_assistant_request(payload: dict) -> dict:
             "maxDurationSeconds": business.get("max_call_duration_minutes", 10) * 60,
             "serverMessages": ["transcript", "hang", "end-of-call-report"],
             "endCallFunctionEnabled": True,
+            "backgroundDenoisingEnabled": True,
+            "transcriber": {
+                "provider": "deepgram",
+                "model": "nova-3",
+                "language": "en-IN",
+            },
         }
     }
 
-##check sthis again
 async def handle_transcript(payload: dict) -> dict:
     """Handle transcript events for live streaming to Slack."""
-    call_id = payload.get("call", {}).get("id") or payload.get("message", {}).get("call", {}).get("id")
+    call_id = payload.get("message", {}).get("call", {}).get("id")
     message = payload.get("message", {})
     text = (
         message.get("transcript")
@@ -229,14 +221,14 @@ async def handle_transcript(payload: dict) -> dict:
     if call_log.get("slack_live_thread_ts") and call_log.get("business_id"):
         try:
             business = await json_storage.get_business(call_log["business_id"])
-            if business and business.get("nango_connection_id") and business.get("slack_live_channel"):
+            if business and business.get("nango_connection_id") and business.get("slack_channel"):
                 transcript_line = f"{role.capitalize()}: {text}"
                 await nango_client.proxy_request(
                     connection_id=str(business.get("nango_connection_id")),
                     method="POST",
                     endpoint="chat.postMessage",
                     data={
-                        "channel": business.get("slack_live_channel"),
+                        "channel": business.get("slack_channel"),
                         "thread_ts": call_log.get("slack_live_thread_ts"),
                         "text": transcript_line,
                     },
@@ -249,11 +241,12 @@ async def handle_transcript(payload: dict) -> dict:
 
 async def handle_end_of_call_report(payload: dict) -> dict:
     """Handle end-of-call-report: generate summary and post to Slack."""
-    call_data = payload.get("call", {})
+    message = payload.get("message", {})
+    call_data = message.get("call", {})
     vapi_call_id = call_data.get("id")
-    duration = call_data.get("durationSeconds", 0)
-    transcript = call_data.get("transcript", "")
-    ended_reason = call_data.get("endedReason", "")
+    duration = message.get("durationSeconds") or call_data.get("durationSeconds", 0)
+    transcript = message.get("transcript") or message.get("artifact", {}).get("transcript", "")
+    ended_reason = message.get("endedReason") or call_data.get("endedReason", "")
 
     call_log = await json_storage.get_call_log_by_vapi_id(vapi_call_id)
     if not call_log:
@@ -295,13 +288,13 @@ async def handle_end_of_call_report(payload: dict) -> dict:
     await json_storage.update_call_log(call_log["id"], call_log)
 
     business = await json_storage.get_business(call_log["business_id"])
-    if business and business.get("nango_connection_id") and business.get("slack_summary_channel"):
+    if business and business.get("nango_connection_id") and business.get("slack_channel"):
         transcript_lines = final_transcript.split("\n")[:3]
         preview = "\n".join(transcript_lines)
         asyncio.create_task(
             slack_service.send_post_call_summary(
                 connection_id=str(business.get("nango_connection_id")),
-                channel=str(business.get("slack_summary_channel")),
+                channel=str(business.get("slack_channel")),
                 call_type=call_log.get("call_type", "inbound"),
                 customer_phone=call_log.get("customer_phone", ""),
                 customer_name=call_log.get("customer_name"),
@@ -484,31 +477,34 @@ async def notify_owner(request: Request):
 
     # ── PRIMARY: Fire Owner PA VAPI call to owner's phone ──────────────
     pa_system_prompt = f"""[Identity]
-You are a professional, efficient AI assistant representing {business_name}.
-Your role is to inform the owner about a qualified lead and get their availability decision quickly.
+You are a brief, efficient AI assistant for {business_name}.
+Your only job: inform the owner of a lead and get a yes/no decision.
 
-[Style]
-- Concise, clear, and professional.
-- No small talk. Stay focused.
-- Sound human — use brief natural pauses.
+[Customer]
+Name: {customer_name}
+Request: {call_summary}
+Reason: {lead_reason}
 
-[Customer Context]
-Customer Name: {customer_name}
-What they want: {call_summary}
-Quality indicator: {lead_reason}
+[Script - follow exactly]
+1. Say: "Hello {owner_name}, I'm calling from {business_name}. I have {customer_name} on the line who wants to {call_summary}. Are you available to take this call?"
+2. Wait for response.
+3. If YES or any positive response:
+   - Say: "Perfect, connecting now."
+   - Call report_decision with decision="yes"
+   - Immediately call endCall. Do not say anything else.
+4. If NO or unavailable:
+   - Say: "Understood, thank you."
+   - Call report_decision with decision="no"
+   - Immediately call endCall. Do not say anything else.
+5. If unclear after one follow-up:
+   - Call report_decision with decision="no"
+   - Immediately call endCall.
 
-[Task]
-1. Say: "Hello {owner_name}, this is {business_name}'s assistant calling to inform you of a lead. I have a qualified customer on the line."
-2. Brief the owner: "{customer_name} wants to {call_summary}."
-3. Ask: "Are you available to speak with them right now?"
-4. Wait for response.
-5. If YES: Say "Perfect, connecting you now." → call report_decision with decision="yes" → end call.
-6. If NO: Say "No problem, I will let them know. Thank you!" → call report_decision with decision="no" → end call.
-7. If no clear answer: ask once more. If still unclear → assume "no" → call report_decision with decision="no" → end call.
-
-[Critical Rule]
-Always call report_decision before ending.
-Decision must be "yes" or "no" only. Nothing else."""
+[Rules]
+- Call report_decision ONCE only.
+- Call endCall immediately after report_decision. No more talking.
+- Do not repeat yourself.
+- Do not say "hold on" or "one moment" after calling report_decision."""
 
     pa_first_message = (
         f"Hello {owner_name}, am I speaking to the owner of {business_name}?"
@@ -534,13 +530,9 @@ Decision must be "yes" or "no" only. Nothing else."""
                     "model": {
                         "provider": "openai",
                         "model": "gpt-4o-mini",
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": pa_system_prompt
-                            }
-                        ]
-                    }
+                        "messages": [{"role": "system", "content": pa_system_prompt}],
+                        "tools": _build_owner_pa_tools(),
+                    },
                 },
             }
             print(f"📞 DEBUG: Attempting Owner Call with ID: {owner_assistant_id}")
@@ -573,11 +565,11 @@ Decision must be "yes" or "no" only. Nothing else."""
             print(f"📞 DEBUG: Response Text: {getattr(resp, 'text', '<no response>')}")
 
     # ── SECONDARY: Send Slack notification with approve/decline buttons ─
-    if business.get("nango_connection_id") and business.get("slack_live_channel"):
+    if business.get("nango_connection_id") and business.get("slack_channel"):
         try:
             await slack_service.send_owner_approval_request(
                 connection_id=str(business.get("nango_connection_id")),
-                channel=str(business.get("slack_live_channel")),
+                channel=str(business.get("slack_channel")),
                 customer_name=customer_name,
                 customer_phone=customer_phone,
                 reason=reason,
@@ -591,7 +583,7 @@ Decision must be "yes" or "no" only. Nothing else."""
         "results": [
             {
                 "toolCallId": tool_call_id,
-                "result": "Owner has been notified. Please hold while we check availability.",
+                "result": "WAITING_FOR_OWNER. Do not say anything to the customer. Do not say the owner is ready. Stay silent until you receive a system message with the owner's decision.",
             }
         ]
     }
@@ -631,8 +623,8 @@ async def owner_decision(request: Request):
         print(f"No customer call found for owner call: {owner_call_id}")
 
     messages = {
-        "yes": "Transfer initiated. Customer is being connected to the owner now.",
-        "no": "Noted. Customer has been informed the team will call back shortly.",
+        "yes": "Done.",
+        "no": "Done.",
     }
 
     return {

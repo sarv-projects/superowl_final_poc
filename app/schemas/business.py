@@ -10,16 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field
 class BusinessBase(BaseModel):
     phone_number: str = Field(..., max_length=20)
     display_name: str = Field(..., max_length=255)
-    city: Optional[str] = None
-    hours: Optional[str] = None
-    services: Optional[str] = None
+    kb: Optional[str] = None
     fallback_number: str = Field(..., max_length=20)
 
     # Slack
     nango_connection_id: Optional[str] = None
     slack_workspace: Optional[str] = None
-    slack_live_channel: Optional[str] = None
-    slack_summary_channel: Optional[str] = None
+    slack_channel: Optional[str] = None
 
     # Voice
     voice_id: str = "pMsXgVXv3BLzUgSXRplE"
@@ -56,15 +53,12 @@ class BusinessUpdate(BaseModel):
     phone_number: Optional[str] = Field(None, max_length=20)
     display_name: Optional[str] = Field(None, max_length=255)
     fallback_number: Optional[str] = Field(None, max_length=20)
-    city: Optional[str] = None
-    hours: Optional[str] = None
-    services: Optional[str] = None
+    kb: Optional[str] = None
 
     # Slack
     nango_connection_id: Optional[str] = None
     slack_workspace: Optional[str] = None
-    slack_live_channel: Optional[str] = None
-    slack_summary_channel: Optional[str] = None
+    slack_channel: Optional[str] = None
 
     # Voice
     voice_id: Optional[str] = None

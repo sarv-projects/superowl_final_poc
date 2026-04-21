@@ -3,14 +3,15 @@
 import hmac
 import json
 from hashlib import sha256
-from datetime import datetime
+from datetime import datetime, timezone
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
-
+import asyncio
 from app.core.config import settings
 from app.core import json_storage
 from app.services.nango_service import nango_client
+
 
 router = APIRouter()
 
@@ -76,9 +77,8 @@ async def slack_oauth_callback(request: Request):
     return HTMLResponse("<h1>✅ Slack Connected! You can close this window.</h1>")
 
 
-@router.post("/webhook/slack")
+@router.post("/webhook/nango")
 async def nango_webhook(request: Request):
-    """Handle Nango auth webhooks and finalize workspace metadata."""
     raw_body = await request.body()
     signature = request.headers.get("x-nango-signature")
     if not _verify_nango_signature(raw_body, signature):
@@ -91,62 +91,83 @@ async def nango_webhook(request: Request):
 
     print("🔍 FULL NANGO WEBHOOK PAYLOAD:", json.dumps(payload, indent=2))
 
-    # Nango now sends our business UUID
-    connection_id = (
-        payload.get("endUser", {}).get("endUserId")
-        or payload.get("connectionId")
-        or payload.get("connection_id")
-    )
+    nango_internal_id = payload.get("connectionId")
+    business_uuid = payload.get("endUser", {}).get("endUserId")
 
-    if not connection_id:
-        print("❌ No connection_id found in webhook")
-        return {"status": "ignored", "reason": "no_connection_id"}
+    if not nango_internal_id or not business_uuid:
+        print("❌ Missing connectionId or endUserId")
+        return {"status": "ignored", "reason": "missing_ids"}
 
-    print(f"🔑 Extracted connection_id: {connection_id}")
-
-    # Lookup by the exact business UUID we stored
-    businesses = await json_storage.list_businesses()
-    business = None
-    for b in businesses:
-        stored = b.get("nango_connection_id")
-        if stored and str(stored) == str(connection_id):
-            business = b
-            break
-
+    business = await json_storage.get_business(business_uuid)
     if not business:
-        print("❌ Still no business found for this webhook")
+        print(f"❌ Business not found for UUID: {business_uuid}")
         return {"status": "ignored", "reason": "business_not_found"}
 
-    # === FORCE UPDATE ===
-    business["nango_connection_id"] = str(connection_id)
+    business["nango_connection_id"] = nango_internal_id
     business["slack_workspace"] = "Connected"
     business["slack_workspace_name"] = "Connected"
-    business["updated_at"] = datetime.utcnow().isoformat()
-    try:
-        channels = await nango_client.list_channels(connection_id=str(connection_id))
-        if channels:
-            # Pick the first channel (the one selected during OAuth popup)
-            selected = channels[0]["name"]  # no # prefix
-            business["slack_live_channel"] = selected
-            business["slack_summary_channel"] = selected
-            print(f"✅ Auto-set Slack channel: {selected}")
-    except Exception as e:
-        print(f"⚠️ Could not auto-fetch Slack channel: {e}")
+    business["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Auto-fetch channel only if not already set
+    if not business.get("slack_channel"):
+        try:
+            await asyncio.sleep(3)
+            channels = await nango_client.list_channels(connection_id=nango_internal_id)
+            if channels:
+                selected = channels[0]["name"]
+                business["slack_channel"] = selected
+                print(f"✅ Auto-set Slack channel: {selected}")
+            else:
+                print("⚠️ No channels returned — user must set slack_channel manually via dashboard")
+        except Exception as e:
+            print(f"⚠️ Could not auto-fetch Slack channel: {e}")
 
     await json_storage.update_business(business["id"], business)
+    print(f"✅ SUCCESS: Business {business_uuid} → Nango ID {nango_internal_id}")
 
-    print(f"✅ SUCCESS: Updated business {business.get('id')} with Slack connection {connection_id}")
+    return {"status": "ok", "business_id": business_uuid}
 
-    return {"status": "ok", "business_id": business["id"]}
+
+# Alias for backwards compatibility with old Nango dashboard config
+@router.post("/webhook/slack")
+async def nango_webhook_slack_alias(request: Request):
+    return await nango_webhook(request)
 
 @router.get("/slack/channels")
 async def get_slack_channels(phone: str):
     """Return current Slack channels saved for this business."""
     business = await _find_business_by_phone(phone)
     if not business:
-        return {"live_channel": "", "summary_channel": ""}
-
+        return {"live_channel": "", "summary_channel": "", "nango_connection_id": "", "status": "not_found"}
     return {
-        "live_channel": business.get("slack_live_channel", ""),
-        "summary_channel": business.get("slack_summary_channel", "")
+        "live_channel": business.get("slack_channel", ""),
+        "summary_channel": business.get("slack_channel", ""),
+        "nango_connection_id": business.get("nango_connection_id", ""),
+        "slack_workspace": business.get("slack_workspace", ""),
+        "status": "connected" if business.get("nango_connection_id") and business.get("slack_channel") else "incomplete",
     }
+
+
+@router.post("/slack/set-channel")
+async def set_slack_channel(phone: str, channel: str):
+    """Manually set the Slack channel for a business (no # prefix needed)."""
+    business = await _find_business_by_phone(phone)
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+    business["slack_channel"] = channel.lstrip("#")
+    business["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await json_storage.update_business(business["id"], business)
+    return {"status": "ok", "slack_channel": business["slack_channel"]}
+
+
+@router.get("/slack/list-channels")
+async def list_slack_channels(phone: str):
+    """Fetch live channel list from Slack via Nango for a business."""
+    business = await _find_business_by_phone(phone)
+    if not business or not business.get("nango_connection_id"):
+        raise HTTPException(status_code=404, detail="Business not connected to Slack")
+    try:
+        channels = await nango_client.list_channels(connection_id=str(business["nango_connection_id"]))
+        return {"channels": [c["name"] for c in channels]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

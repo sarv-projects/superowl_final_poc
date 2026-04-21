@@ -396,8 +396,7 @@ class Business(BaseModel):
     # Slack integration
     nango_connection_id: Optional[str] = None
     slack_workspace: Optional[str] = None
-    slack_live_channel: Optional[str] = None
-    slack_summary_channel: Optional[str] = None
+    slack_channel: Optional[str] = None
 
     # Voice config (shared)
     voice_id: str = "pMsXgVXv3BLzUgSXRplE"
@@ -1657,7 +1656,7 @@ async def slack_events(request: Request):
                     method="POST",
                     endpoint="chat.postMessage",
                     data={
-                        "channel": business.get("slack_live_channel"),
+                            "channel": business.get("slack_channel"),
                         "thread_ts": call_log.get("slack_live_thread_ts"),
                         "text": f"✅ Whisper delivered: _{message_text}_",
                     },
@@ -1846,11 +1845,11 @@ async def handle_assistant_request(payload: dict) -> dict:
         }
     )
 
-    if business.get("nango_connection_id") and business.get("slack_live_channel"):
+    if business.get("nango_connection_id") and business.get("slack_channel"):
         try:
             slack_result = await slack_service.send_live_call_notification(
                 connection_id=str(business.get("nango_connection_id")),
-                channel=str(business.get("slack_live_channel")),
+                channel=str(business.get("slack_channel")),
                 call_type="inbound",
                 call_log_id=str(call_log.get("id")),
                 vapi_call_id=vapi_call_id,
@@ -1949,14 +1948,14 @@ async def handle_transcript(payload: dict) -> dict:
     if call_log.get("slack_live_thread_ts") and call_log.get("business_id"):
         try:
             business = await json_storage.get_business(call_log["business_id"])
-            if business and business.get("nango_connection_id") and business.get("slack_live_channel"):
+            if business and business.get("nango_connection_id") and business.get("slack_channel"):
                 transcript_line = f"{role.capitalize()}: {text}"
                 await nango_client.proxy_request(
                     connection_id=str(business.get("nango_connection_id")),
                     method="POST",
                     endpoint="chat.postMessage",
                     data={
-                        "channel": business.get("slack_live_channel"),
+                        "channel": business.get("slack_channel"),
                         "thread_ts": call_log.get("slack_live_thread_ts"),
                         "text": transcript_line,
                     },
@@ -2015,13 +2014,13 @@ async def handle_end_of_call_report(payload: dict) -> dict:
     await json_storage.update_call_log(call_log["id"], call_log)
 
     business = await json_storage.get_business(call_log["business_id"])
-    if business and business.get("nango_connection_id") and business.get("slack_summary_channel"):
+    if business and business.get("nango_connection_id") and business.get("slack_channel"):
         transcript_lines = final_transcript.split("\n")[:3]
         preview = "\n".join(transcript_lines)
         asyncio.create_task(
             slack_service.send_post_call_summary(
                 connection_id=str(business.get("nango_connection_id")),
-                channel=str(business.get("slack_summary_channel")),
+                channel=str(business.get("slack_channel")),
                 call_type=call_log.get("call_type", "inbound"),
                 customer_phone=call_log.get("customer_phone", ""),
                 customer_name=call_log.get("customer_name"),
@@ -2293,11 +2292,11 @@ Decision must be "yes" or "no" only. Nothing else."""
             print(f"📞 DEBUG: Response Text: {getattr(resp, 'text', '<no response>')}")
 
     # ── SECONDARY: Send Slack notification with approve/decline buttons ─
-    if business.get("nango_connection_id") and business.get("slack_live_channel"):
+    if business.get("nango_connection_id") and business.get("slack_channel"):
         try:
             await slack_service.send_owner_approval_request(
                 connection_id=str(business.get("nango_connection_id")),
-                channel=str(business.get("slack_live_channel")),
+                channel=str(business.get("slack_channel")),
                 customer_name=customer_name,
                 customer_phone=customer_phone,
                 reason=reason,
@@ -2399,8 +2398,7 @@ class BusinessBase(BaseModel):
     # Slack
     nango_connection_id: Optional[uuid.UUID] = None
     slack_workspace: Optional[str] = None
-    slack_live_channel: Optional[str] = None
-    slack_summary_channel: Optional[str] = None
+    slack_channel: Optional[str] = None
 
     # Voice
     voice_id: str = "pMsXgVXv3BLzUgSXRplE"
@@ -2444,8 +2442,7 @@ class BusinessUpdate(BusinessBase):
     # Slack
     nango_connection_id: Optional[uuid.UUID] = None
     slack_workspace: Optional[str] = None
-    slack_live_channel: Optional[str] = None
-    slack_summary_channel: Optional[str] = None
+    slack_channel: Optional[str] = None
 
     # Voice
     voice_id: Optional[str] = None
@@ -2673,11 +2670,11 @@ async def trigger_outbound_callback(
         })
 
         # Fire Slack live-call notification for outbound (enables owner whisper/takeover)
-        if business.get("nango_connection_id") and business.get("slack_live_channel"):
+        if business.get("nango_connection_id") and business.get("slack_channel"):
             try:
                 slack_result = await slack_service.send_live_call_notification(
                     connection_id=str(business.get("nango_connection_id")),
-                    channel=str(business.get("slack_live_channel")),
+                    channel=str(business.get("slack_channel")),
                     call_type="outbound",
                     call_log_id=str(call_log.get("id")),
                     vapi_call_id=vapi_call_id,

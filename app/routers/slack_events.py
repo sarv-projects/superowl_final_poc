@@ -65,7 +65,7 @@ async def slack_events(request: Request):
                     method="POST",
                     endpoint="chat.postMessage",
                     data={
-                        "channel": business.get("slack_live_channel"),
+                        "channel": business.get("slack_channel"),
                         "thread_ts": call_log.get("slack_live_thread_ts"),
                         "text": f"✅ Whisper delivered: _{message_text}_",
                     },

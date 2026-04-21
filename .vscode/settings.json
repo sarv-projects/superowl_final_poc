@@ -1,0 +1,11 @@
+{
+  "mcp": {
+    "servers": {
+      "docfork": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "docfork@latest", "--api-key", "${env:DOCFORK_API_KEY}"]
+      }
+    }
+  }
+}
